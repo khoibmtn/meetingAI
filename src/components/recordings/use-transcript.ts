@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import type { Json } from "@/lib/database.types";
 import type { Segment, Speaker } from "@/lib/transcription/types";
-import { assignIds } from "@/lib/transcription/merge";
+import { assignIds, consolidateMinorSpeakers } from "@/lib/transcription/merge";
 import { stripDiacritics } from "@/lib/utils";
 
 export interface TranscriptState {
@@ -131,6 +131,16 @@ export function useTranscript(recordingId: string, initial: TranscriptState | nu
     [mutate],
   );
 
+  /** Gộp người nói phụ (chưa rõ tên, nói rất ít) thành "Thành viên khác". */
+  const consolidateMinor = useCallback(
+    () =>
+      mutate((cur) => {
+        const r = consolidateMinorSpeakers(cur.segments, cur.speakers);
+        return r.merged ? { ...cur, segments: r.segments, speakers: r.speakers } : null;
+      }),
+    [mutate],
+  );
+
   /** Thêm người nói (chỉ cục bộ) — được lưu cùng lần gán câu đầu tiên cho người đó. */
   const addSpeaker = useCallback(
     (name: string): string | null => {
@@ -151,5 +161,5 @@ export function useTranscript(recordingId: string, initial: TranscriptState | nu
     [mutate],
   );
 
-  return { state, saving, updateSegment, deleteSegment, renameSpeaker, mergeSpeakers, addSpeaker, restoreOriginal };
+  return { state, saving, updateSegment, deleteSegment, renameSpeaker, mergeSpeakers, consolidateMinor, addSpeaker, restoreOriginal };
 }

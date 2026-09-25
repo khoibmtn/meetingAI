@@ -22,6 +22,7 @@
 - **Soniox `stt-async-v5`** (tuỳ chọn): phân vai theo đặc trưng giọng nói trên toàn bộ tệp.
 - Cả hai đều có:
   - AI suy ra tên và vai trò người nói từ nội dung
+  - gộp những người nói chưa rõ tên, chỉ nói vài giây (chào hỏi, "vâng"…) thành "Thành viên khác"
   - hiệu đính thuật ngữ y khoa theo từ điển, có kiểm chứng từng chỗ sửa
 - Bản máy gốc luôn được giữ, khôi phục được bất cứ lúc nào.
 
@@ -76,7 +77,7 @@ Cần có:
    - Khi cập nhật ứng dụng, chỉ cần chạy thêm các tệp migration mới (vd `20260926000000_temp_audio.sql` tạo bucket lưu tạm `audio-temp`). **Quản trị → Kiểm tra** báo mục nào còn thiếu.
    - Có thể làm bước này sau khi deploy: nếu CSDL chưa khởi tạo, ứng dụng tự mở trang **Cài đặt ban đầu**, có nút sao chép SQL và liên kết thẳng tới SQL Editor.
    - Tài khoản đã đăng ký trước khi chạy migration vẫn được tạo hồ sơ; người đăng ký sớm nhất là quản trị viên.
-   - Migration tạo bảng, phân quyền RLS và bật Realtime cho chat và tiến độ phiên âm.
+   - Migration tạo bảng, phân quyền RLS và bật Realtime cho chat, tiến độ phiên âm và danh sách văn bản tổng hợp.
 3. Vào **Authentication → URL Configuration**:
    - **Site URL**: `https://<tên-miền-ứng-dụng>`
    - **Redirect URLs**: thêm `https://<tên-miền-ứng-dụng>/auth/callback`, và `http://localhost:3000/auth/callback` nếu chạy thử trên máy.

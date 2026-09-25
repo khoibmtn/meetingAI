@@ -6,8 +6,11 @@ import {
   collapseInlineLoops,
   collapseRepetitions,
   computeCoverage,
+  consolidateMinorSpeakers,
   mergeChunkOutputs,
   mergeGapSegments,
+  minorSpeakerKeys,
+  OTHERS_KEY,
   subtractIntervals,
   toAbsoluteSegments,
 } from "./merge";
@@ -290,5 +293,23 @@ describe("merge", () => {
       { start: 0, end: 2 },
       { start: 3, end: 5 },
     ]);
+  });
+});
+
+describe("người nói phụ", () => {
+  const seg = (speaker: string, start: number, end: number) => ({ id: `${speaker}-${start}`, speaker, start, end, text: "x" });
+  const spk = (key: string, name: string) => ({ key, name, role: null });
+  it("gộp người nói chưa rõ tên, nói < 20 giây thành “Thành viên khác”; không gộp người có tên", () => {
+    const segments = [seg("S1", 0, 300), seg("S2", 300, 305), seg("S3", 305, 309), seg("S4", 309, 312), seg("S5", 312, 400)];
+    const speakers = [spk("S1", "Thầy Hùng"), spk("S2", "Người nói 2"), spk("S3", "Người nói 3"), spk("S4", "BS. Dương"), spk("S5", "Người nói 5")];
+    expect(minorSpeakerKeys(segments, speakers)).toEqual(["S2", "S3"]);
+    const r = consolidateMinorSpeakers(segments, speakers);
+    expect(r.merged).toBe(2);
+    expect(r.segments.map((s) => s.speaker)).toEqual(["S1", OTHERS_KEY, OTHERS_KEY, "S4", "S5"]);
+    expect(r.speakers.map((s) => s.key)).toEqual(["S1", "S4", "S5", OTHERS_KEY]);
+    // chạy lại: không còn gì để gộp
+    expect(consolidateMinorSpeakers(r.segments, r.speakers).merged).toBe(0);
+    // chỉ 1 người nói phụ → giữ nguyên
+    expect(consolidateMinorSpeakers(segments.slice(0, 2), speakers.slice(0, 2)).merged).toBe(0);
   });
 });

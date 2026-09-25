@@ -4,6 +4,7 @@ import { decryptSecret, encryptSecret, keyHint } from "@/lib/crypto";
 import { serverEnv } from "@/lib/env";
 import type { Json, Tables, TablesUpdate } from "@/lib/database.types";
 import {
+  baseUrlError,
   PROVIDERS,
   USAGES,
   usageAccepts,
@@ -217,6 +218,8 @@ export function sanitizeParams(p: ModelParams | undefined, model?: string): Mode
 export async function saveConnection(input: ConnectionInput, actorId: string): Promise<Row> {
   const admin = createAdminClient();
   if (!PROVIDERS[input.provider]) throw new Error("Nhà cung cấp không hợp lệ");
+  const urlError = baseUrlError(input.baseUrl);
+  if (urlError) throw new Error(urlError);
   const base = {
     name: input.name.trim().slice(0, 120),
     provider: input.provider,

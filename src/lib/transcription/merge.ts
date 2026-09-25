@@ -1,7 +1,7 @@
 import { parseTimecode } from "./timecode";
 import { isNearDuplicate, tokens } from "./similarity";
-import { normalizeSpeakerId } from "./speakers";
-import type { ChunkPlan, Interval, RawChunkResult, Segment, SegmentFlag } from "./types";
+import { hasIdentifiedName, normalizeSpeakerId } from "./speakers";
+import type { ChunkPlan, Interval, RawChunkResult, Segment, SegmentFlag, Speaker } from "./types";
 
 /** Ước lượng thời lượng đọc một câu tiếng Việt (~3 âm tiết/giây). */
 export function estimateSpeechSeconds(text: string): number {
@@ -291,4 +291,40 @@ export function talkTimeBySpeaker(segments: Pick<Segment, "speaker" | "start" | 
   const out: Record<string, number> = {};
   for (const s of segments) out[s.speaker] = (out[s.speaker] ?? 0) + Math.max(0, s.end - s.start);
   return out;
+}
+
+/** Khoá chung cho người nói phụ đã gộp. */
+export const OTHERS_KEY = "SX";
+export const OTHERS_NAME = "Thành viên khác";
+/** Người nói chưa rõ tên và nói ít hơn chừng này (giây) → gộp vào "Thành viên khác". */
+export const MINOR_SPEAKER_SEC = 20;
+
+/** Các khoá người nói "phụ": chưa rõ tên, tổng thời gian nói rất ít (chào hỏi, "vâng", "dạ"…). */
+export function minorSpeakerKeys(
+  segments: Pick<Segment, "speaker" | "start" | "end">[],
+  speakers: Pick<Speaker, "key" | "name">[],
+  maxSec = MINOR_SPEAKER_SEC,
+): string[] {
+  const talk = talkTimeBySpeaker(segments);
+  return speakers.filter((s) => s.key !== OTHERS_KEY && !hasIdentifiedName(s) && (talk[s.key] ?? 0) < maxSec).map((s) => s.key);
+}
+
+/**
+ * Gộp người nói phụ vào một nhãn chung "Thành viên khác" (mô hình hay tách mỗi câu chào, "vâng" của
+ * người khác nhau thành một người nói riêng → danh sách dài vô ích). Chỉ gộp khi có từ 2 người như vậy;
+ * người đã có tên không bao giờ bị gộp.
+ */
+export function consolidateMinorSpeakers<T extends Pick<Segment, "speaker" | "start" | "end">>(
+  segments: T[],
+  speakers: Speaker[],
+  maxSec = MINOR_SPEAKER_SEC,
+): { segments: T[]; speakers: Speaker[]; merged: number } {
+  const minor = new Set(minorSpeakerKeys(segments, speakers, maxSec));
+  if (minor.size < 2) return { segments, speakers, merged: 0 };
+  const others = speakers.find((s) => s.key === OTHERS_KEY) ?? { key: OTHERS_KEY, name: OTHERS_NAME, role: null };
+  return {
+    segments: segments.map((s) => (minor.has(s.speaker) ? { ...s, speaker: OTHERS_KEY } : s)),
+    speakers: [...speakers.filter((s) => !minor.has(s.key) && s.key !== OTHERS_KEY), others],
+    merged: minor.size,
+  };
 }

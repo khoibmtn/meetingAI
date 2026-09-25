@@ -221,6 +221,23 @@ export function usageAccepts(usage: Usage, provider: ProviderKind): boolean {
   return USAGES.find((u) => u.id === usage)?.accepts.includes(provider) ?? false;
 }
 
+/**
+ * Base URL hợp lệ: trống (dùng mặc định) hoặc địa chỉ http(s):// không chứa khoảng trắng / "@"
+ * (chặn trường hợp trình quản lý mật khẩu điền nhầm email hay mật khẩu vào ô này).
+ */
+export function baseUrlError(value: string | null | undefined): string | null {
+  const v = (value ?? "").trim();
+  if (!v) return null;
+  let ok = false;
+  try {
+    const u = new URL(v);
+    ok = (u.protocol === "https:" || u.protocol === "http:") && !!u.hostname && !/[\s@]/.test(v);
+  } catch {
+    ok = false;
+  }
+  return ok ? null : "Base URL không hợp lệ — phải là địa chỉ dạng https://…, hoặc để trống để dùng mặc định";
+}
+
 /** Lý do một nhà cung cấp không dùng được cho vị trí này (hiển thị mờ trong danh sách chọn); null = dùng được. */
 export function usageRejectReason(usage: Usage, provider: ProviderKind): string | null {
   if (usageAccepts(usage, provider)) return null;

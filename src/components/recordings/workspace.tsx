@@ -163,6 +163,7 @@ function WorkspaceInner({ recording, transcript, job, reports, customTemplates, 
       onDeleteSegment={t.deleteSegment}
       onRenameSpeaker={t.renameSpeaker}
       onMergeSpeakers={t.mergeSpeakers}
+      onConsolidateMinor={t.consolidateMinor}
       onAddSpeaker={t.addSpeaker}
       onAddNoteAt={addNoteAt}
     />

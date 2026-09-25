@@ -3,7 +3,7 @@ import { jsonError, requireApiUser, HttpError } from "@/lib/auth";
 import { listModels } from "@/lib/ai";
 import { getConnectionRow } from "@/lib/ai/connections";
 import { decryptSecret } from "@/lib/crypto";
-import { PROVIDERS, type ProviderKind } from "@/lib/ai/catalog";
+import { baseUrlError, PROVIDERS, type ProviderKind } from "@/lib/ai/catalog";
 
 export const maxDuration = 60;
 
@@ -13,6 +13,8 @@ export async function POST(request: NextRequest) {
     const { user, profile } = await requireApiUser();
     const body = (await request.json()) as { id?: string; provider: ProviderKind; baseUrl?: string | null; apiKey?: string | null };
     if (!PROVIDERS[body.provider]) throw new HttpError(400, "Nhà cung cấp không hợp lệ");
+    const urlError = baseUrlError(body.baseUrl);
+    if (urlError) throw new HttpError(400, urlError);
     let apiKey = body.apiKey?.trim() || "";
     if (!apiKey && body.id) {
       const row = await getConnectionRow(body.id);

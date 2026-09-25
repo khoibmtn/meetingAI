@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { format } from "date-fns";
 import {
+  AlertTriangleIcon,
   ArrowLeftIcon,
   CopyIcon,
   FileDownIcon,
@@ -12,6 +13,7 @@ import {
   PencilIcon,
   PlusIcon,
   PrinterIcon,
+  RefreshCwIcon,
   SaveIcon,
   SquareIcon,
   Trash2Icon,
@@ -46,6 +48,21 @@ export interface ReportItem {
   author?: string | null;
 }
 
+const REPORT_FIELDS = "id,title,template_key,status,is_shared,created_by,created_at,updated_at,provider,model";
+
+/** Danh sách mới từ máy chủ thay danh sách đang có (giữ tên tác giả đã biết). */
+function mergeReports(current: ReportItem[], incoming: ReportItem[]): ReportItem[] {
+  const authors = new Map(current.map((r) => [r.id, r.author]));
+  return incoming.map((r) => ({ ...r, author: r.author ?? authors.get(r.id) ?? null }));
+}
+
+const REPORT_ERROR_RE = /\n*> ⚠️ Lỗi khi tạo báo cáo: (.+)\s*$/;
+
+/** Thông báo lỗi ở cuối nội dung văn bản tạo thất bại. */
+function reportErrorMessage(content: string): string | null {
+  return REPORT_ERROR_RE.exec(content)?.[1]?.trim() ?? null;
+}
+
 export interface CustomTemplate {
   id: string;
   name: string;
@@ -72,6 +89,18 @@ export function ReportsPanel({
 }) {
   const profile = useProfile();
   const [reports, setReports] = useState(initialReports);
+  // Máy chủ gửi danh sách mới (router.refresh sau khi phiên âm xong…) → cập nhật ngay, không cần tải lại trang
+  const [prevInitial, setPrevInitial] = useState(initialReports);
+  if (prevInitial !== initialReports) {
+    setPrevInitial(initialReports);
+    setReports((cur) => mergeReports(cur, initialReports));
+  }
+  // Mở hộp thoại tạo văn bản (tuỳ chọn: chọn sẵn template, thay thế văn bản lỗi)
+  const [genPreset, setGenPreset] = useState<{ templateKey: string | null; replaceId: string | null; n: number }>({
+    templateKey: null,
+    replaceId: null,
+    n: 0,
+  });
   const [openId, setOpenId] = useState<string | null>(null);
   const [content, setContent] = useState("");
   const [editing, setEditing] = useState(false);
@@ -81,23 +110,51 @@ export function ReportsPanel({
   const abortRef = useRef<AbortController | null>(null);
   const current = reports.find((r) => r.id === openId) ?? null;
 
-  // Theo dõi báo cáo đang được tạo nền (tự động sau phiên âm)
+  // Danh sách văn bản cập nhật trực tiếp: văn bản tạo tự động sau phiên âm, người khác tạo, đổi trạng thái…
+  // Realtime là chính; thăm dò 10 giây/lần làm dự phòng.
   useEffect(() => {
-    if (!reports.some((r) => r.status === "generating") || streaming) return;
-    const t = window.setInterval(async () => {
-      const { data } = await createClient()
+    const supabase = createClient();
+    let alive = true;
+    const refresh = async () => {
+      const { data } = await supabase
         .from("reports")
-        .select("id,title,template_key,status,is_shared,created_by,created_at,updated_at,provider,model")
+        .select(REPORT_FIELDS)
         .eq("recording_id", recordingId)
         .order("created_at", { ascending: false });
-      if (data) setReports(data);
-      if (openId) {
-        const { data: r } = await createClient().from("reports").select("content").eq("id", openId).maybeSingle();
-        if (r) setContent(r.content);
-      }
-    }, 4000);
-    return () => window.clearInterval(t);
-  }, [reports, recordingId, openId, streaming]);
+      if (alive && data) setReports((cur) => mergeReports(cur, data));
+    };
+    const channel = supabase
+      .channel(`reports-${recordingId}`)
+      .on("postgres_changes", { event: "*", schema: "public", table: "reports", filter: `recording_id=eq.${recordingId}` }, () => {
+        void refresh();
+      })
+      .subscribe();
+    const poll = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refresh();
+    }, 10_000);
+    return () => {
+      alive = false;
+      window.clearInterval(poll);
+      void supabase.removeChannel(channel);
+    };
+  }, [recordingId]);
+
+  // Văn bản đang mở: tải lại nội dung khi trạng thái đổi; đang tạo nền thì cập nhật dần mỗi 4 giây
+  const openStatus = current?.status;
+  useEffect(() => {
+    if (!openId || streaming) return;
+    let alive = true;
+    const load = async () => {
+      const { data } = await createClient().from("reports").select("content").eq("id", openId).maybeSingle();
+      if (alive && data) setContent(data.content);
+    };
+    void load();
+    const t = openStatus === "generating" ? window.setInterval(load, 4000) : null;
+    return () => {
+      alive = false;
+      if (t) window.clearInterval(t);
+    };
+  }, [openId, openStatus, streaming]);
 
   async function open(id: string) {
     setOpenId(id);
@@ -106,12 +163,19 @@ export function ReportsPanel({
     setContent(data?.content ?? "");
   }
 
+  function openGenerate(templateKey: string | null = null, replaceId: string | null = null) {
+    setGenPreset((p) => ({ templateKey, replaceId, n: p.n + 1 }));
+    setGenOpen(true);
+  }
+
   async function generate(templateKey: string, connectionId: string | undefined, isShared: boolean) {
+    const replaceId = genPreset.replaceId;
     setGenOpen(false);
     setStreaming(true);
     setContent("");
     setEditing(false);
     abortRef.current = new AbortController();
+    let id: string | null = null;
     try {
       const res = await fetch(`/api/recordings/${recordingId}/reports`, {
         method: "POST",
@@ -119,7 +183,7 @@ export function ReportsPanel({
         body: JSON.stringify({ templateKey, connectionId, isShared }),
         signal: abortRef.current.signal,
       });
-      const id = res.headers.get("x-report-id");
+      id = res.headers.get("x-report-id");
       if (id) {
         const tpl = [...templatesForCategory(category), ...customTemplates.map((c) => ({ key: c.id, name: c.name }))].find(
           (t) => t.key === templateKey,
@@ -137,14 +201,20 @@ export function ReportsPanel({
           model: null,
           author: profile.full_name,
         };
-        setReports((r) => [item, ...r]);
+        setReports((r) => [item, ...r.filter((x) => x.id !== replaceId)]);
         setOpenId(id);
+        // "Tạo lại" từ một văn bản lỗi: bản lỗi không còn giá trị → xoá
+        if (replaceId) void createClient().from("reports").delete().eq("id", replaceId).eq("status", "error");
       }
       await readTextStream(res, setContent, abortRef.current.signal);
       setReports((r) => r.map((x) => (x.id === id ? { ...x, status: "ready" } : x)));
       toast.success("Đã tạo xong văn bản");
     } catch (e) {
-      if ((e as Error).name !== "AbortError") toast.error((e as Error).message);
+      if ((e as Error).name !== "AbortError") {
+        toast.error((e as Error).message);
+        // Máy chủ đã ghi lỗi vào văn bản trước khi báo → hiện ngay thẻ lỗi (Tạo lại / Xoá)
+        if (id) setReports((r) => r.map((x) => (x.id === id ? { ...x, status: "error" } : x)));
+      }
     } finally {
       setStreaming(false);
     }
@@ -186,8 +256,23 @@ export function ReportsPanel({
     w.print();
   }
 
+  const generateDialog = (
+    <GenerateDialog
+      key={genPreset.n}
+      open={genOpen}
+      onOpenChange={setGenOpen}
+      category={category}
+      customTemplates={customTemplates}
+      initialTemplate={genPreset.templateKey}
+      onGenerate={generate}
+    />
+  );
+
   if (openId && current) {
     const canModify = current.created_by === profile.id || canEdit;
+    // Văn bản lỗi: thông báo lỗi đã nằm trong thẻ cảnh báo → thân văn bản chỉ còn phần đã soạn được (nếu có)
+    const failed = current.status === "error" && !streaming;
+    const shown = failed ? content.replace(REPORT_ERROR_RE, "").trim() : content;
     return (
       <div className="flex min-h-0 flex-col gap-3">
         <div className="flex items-start gap-1">
@@ -222,6 +307,9 @@ export function ReportsPanel({
                   <DropdownMenuItem onSelect={printReport}>
                     <PrinterIcon /> In / Lưu PDF
                   </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => openGenerate(current.template_key)}>
+                    <RefreshCwIcon /> Tạo lại (bản mới)
+                  </DropdownMenuItem>
                   {canModify ? (
                     <DropdownMenuItem variant="destructive" onSelect={() => remove(current.id)}>
                       <Trash2Icon /> Xoá
@@ -250,11 +338,32 @@ export function ReportsPanel({
             </>
           )}
         </div>
+        {failed ? (
+          <div role="alert" className="space-y-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
+            <div className="flex items-start gap-2">
+              <AlertTriangleIcon className="mt-0.5 size-4 shrink-0 text-destructive" />
+              <div className="min-w-0">
+                <div className="font-medium text-destructive">Tạo văn bản thất bại</div>
+                <div className="break-words text-muted-foreground">{reportErrorMessage(content) ?? "Mô hình AI báo lỗi khi soạn văn bản."}</div>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button size="sm" onClick={() => openGenerate(current.template_key, canModify ? current.id : null)}>
+                <RefreshCwIcon /> Tạo lại
+              </Button>
+              {canModify ? (
+                <Button size="sm" variant="outline" onClick={() => remove(current.id)}>
+                  <Trash2Icon /> Xoá
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         {editing ? (
           <Textarea value={draft} onChange={(e) => setDraft(e.target.value)} className="min-h-[60vh] font-mono text-sm" />
-        ) : (
+        ) : failed && !shown ? null : (
           <div id="report-print" className="rounded-xl border bg-card p-4 sm:p-6">
-            {content ? <Markdown onCite={(_c, s) => onCite(s)}>{content}</Markdown> : null}
+            {shown ? <Markdown onCite={(_c, s) => onCite(s)}>{shown}</Markdown> : null}
             {streaming || current.status === "generating" ? (
               <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
                 <Loader2Icon className="size-4 animate-spin" /> AI đang soạn văn bản…
@@ -262,13 +371,14 @@ export function ReportsPanel({
             ) : null}
           </div>
         )}
+        {generateDialog}
       </div>
     );
   }
 
   return (
     <div className="space-y-3">
-      <Button onClick={() => setGenOpen(true)} className="w-full">
+      <Button onClick={() => openGenerate()} className="w-full">
         <PlusIcon /> Tạo văn bản tổng hợp
       </Button>
       {reports.length === 0 ? (
@@ -301,7 +411,7 @@ export function ReportsPanel({
           ))}
         </ul>
       )}
-      <GenerateDialog open={genOpen} onOpenChange={setGenOpen} category={category} customTemplates={customTemplates} onGenerate={generate} />
+      {generateDialog}
     </div>
   );
 }
@@ -311,17 +421,20 @@ function GenerateDialog({
   onOpenChange,
   category,
   customTemplates,
+  initialTemplate,
   onGenerate,
 }: {
   open: boolean;
   onOpenChange: (o: boolean) => void;
   category: string;
   customTemplates: CustomTemplate[];
+  /** Chọn sẵn template (khi "Tạo lại"). */
+  initialTemplate?: string | null;
   onGenerate: (templateKey: string, connectionId: string | undefined, isShared: boolean) => void;
 }) {
   const { state: conns } = useConnections();
   const templates = useMemo(() => templatesForCategory(category), [category]);
-  const [selected, setSelected] = useState(templates[0]?.key);
+  const [selected, setSelected] = useState(initialTemplate ?? templates[0]?.key);
   const [connectionId, setConnectionId] = useConnectionChoice(conns, "report");
   const [isShared, setIsShared] = useState(true);
 

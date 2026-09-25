@@ -13,6 +13,7 @@ import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiJson } from "@/lib/client/api";
 import {
+  baseUrlError,
   claudeAllowsSampling,
   EFFORT_OPTIONS,
   PARAM_PRESETS,
@@ -96,6 +97,8 @@ export function ConnectionEditor({
   function payload() {
     const extra = parsedExtra();
     if (extra === "invalid") throw new Error("Tham số nâng cao phải là một đối tượng JSON hợp lệ");
+    const urlError = baseUrlError(baseUrl);
+    if (urlError) throw new Error(urlError);
     return {
       id: existing?.id,
       scope,
@@ -213,7 +216,15 @@ export function ConnectionEditor({
             </div>
             <div className="space-y-1.5">
               <Label>Base URL {provider === "openai_compatible" ? "*" : "(tuỳ chọn)"}</Label>
-              <Input {...NO_AUTOFILL} inputMode="url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={info.defaultBaseUrl} />
+              <Input
+                {...NO_AUTOFILL}
+                inputMode="url"
+                value={baseUrl}
+                onChange={(e) => setBaseUrl(e.target.value)}
+                placeholder={info.defaultBaseUrl}
+                aria-invalid={!!baseUrlError(baseUrl)}
+              />
+              {baseUrlError(baseUrl) ? <p className="text-xs text-destructive">{baseUrlError(baseUrl)}</p> : null}
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <Label className="flex items-center justify-between">

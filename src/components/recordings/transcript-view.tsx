@@ -4,6 +4,7 @@ import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDownIcon,
   ChevronUpIcon,
+  CombineIcon,
   CrosshairIcon,
   InfoIcon,
   PencilIcon,
@@ -28,6 +29,12 @@ import { usePlayer } from "@/components/player/player-context";
 import { formatTimecode } from "@/lib/transcription/timecode";
 import { speakerColorIndex } from "@/lib/transcription/speakers";
 import { speakerDisplay, toTurns, type Turn } from "@/lib/transcription/format";
+import { minorSpeakerKeys, OTHERS_NAME } from "@/lib/transcription/merge";
+
+/** Thời lượng nói: dưới 1 phút hiện giây (18″), còn lại hiện phút (12′). */
+function formatTalk(sec: number): string {
+  return sec < 60 ? `${Math.round(sec)}″` : `${Math.round(sec / 60)}′`;
+}
 import type { Segment, Speaker } from "@/lib/transcription/types";
 import { cn, stripDiacritics } from "@/lib/utils";
 import { SpeakerDialog } from "./speaker-dialog";
@@ -41,6 +48,8 @@ interface Props {
   onDeleteSegment: (id: string) => void;
   onRenameSpeaker: (key: string, name: string, role: string | null) => void;
   onMergeSpeakers: (from: string, into: string) => void;
+  /** Gộp người nói phụ (chưa rõ tên, nói rất ít) thành "Thành viên khác". */
+  onConsolidateMinor?: () => void;
   onAddSpeaker: (name: string) => string | null;
   onAddNoteAt?: (seconds: number) => void;
 }
@@ -100,6 +109,7 @@ export function TranscriptView(props: Props) {
     for (const s of segments) m[s.speaker] = (m[s.speaker] ?? 0) + (s.end - s.start);
     return m;
   }, [segments]);
+  const minorCount = useMemo(() => minorSpeakerKeys(segments, speakers).length, [segments, speakers]);
 
   return (
     <div className="flex min-h-0 flex-col gap-3">
@@ -122,9 +132,20 @@ export function TranscriptView(props: Props) {
               {(s.name || s.key).replace(/^(Thầy|Cô|BS\.?|Bác sĩ)\s+/i, "").charAt(0).toUpperCase()}
             </span>
             <span className="font-medium">{speakerDisplay(s.key, speakers)}</span>
-            <span className="text-muted-foreground">{Math.round((talk[s.key] ?? 0) / 60)}′</span>
+            <span className="text-muted-foreground">{formatTalk(talk[s.key] ?? 0)}</span>
           </button>
         ))}
+        {canEdit && props.onConsolidateMinor && minorCount >= 2 ? (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 rounded-full text-xs"
+            onClick={props.onConsolidateMinor}
+            title="Người nói chưa rõ tên, tổng thời gian nói dưới 20 giây (chào hỏi, “vâng”, “dạ”…)"
+          >
+            <CombineIcon /> Gộp {minorCount} người nói ít lời thành “{OTHERS_NAME}”
+          </Button>
+        ) : null}
       </div>
 
       {/* Thanh công cụ */}

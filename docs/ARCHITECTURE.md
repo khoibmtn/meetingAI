@@ -119,6 +119,7 @@ Trạng thái tác vụ: `queued → preparing → transcribing → finalizing �
      - Chỉ gộp người nói khi độ tin cậy cao.
      - Một khoá chỉ mang một tên và một vai trò (không ghép "BS. A / BS. B").
      - "Thành phần tham dự" có vai trò (vd "Thầy Hiển (chủ tọa)") mà đúng một người nói thể hiện vai trò đó → được gán tên với độ tin cậy vừa, kể cả khi tên không được gọi. Không tự thêm học hàm, học vị.
+   - **Gộp người nói phụ**: lời rất ngắn (chào hỏi, "vâng", "dạ") mô hình được dặn dùng chung nhãn `S0` thay vì mở người nói mới. Sau khi đặt tên, từ 2 người nói trở lên **chưa rõ tên** và tổng thời gian nói < 20 s được gộp thành `SX` "Thành viên khác" (`consolidateMinorSpeakers`), kèm cảnh báo. Transcript cũ gộp được bằng nút "Gộp N người nói ít lời" trên danh sách người nói.
    - Lưu transcript:
      - `original_segments` là bản máy gốc, lấy **trước** bước AI hiệu đính thuật ngữ, không bao giờ sửa.
      - `segments` là bản đang dùng, có thể hiệu đính.
@@ -140,6 +141,8 @@ Trạng thái tác vụ: `queued → preparing → transcribing → finalizing �
   - Gồm: nhà cung cấp, base URL, khoá API mã hoá AES-256-GCM, mô hình, tham số.
   - Tham số gồm: effort, verbosity, temperature, top-p, max tokens, JSON bổ sung.
   - Trạng thái kiểm tra (`ok/error/untested`) kèm độ trễ.
+  - Base URL phải là địa chỉ `http(s)://…` (hoặc để trống = mặc định); kiểm tra cả ở form và API, chặn giá trị trình quản lý mật khẩu điền nhầm (lỗi "Invalid URL" khi chạy).
+  - Các ô Base URL / API key có thuộc tính bỏ qua tự điền (1Password, LastPass, Bitwarden…); ô API key che bằng CSS, không dùng `type="password"`.
   - Phạm vi: `org` (dùng chung) hoặc `user` (cá nhân).
 - **Phân công** (`ai_assignments`): mỗi vị trí (`transcription`, `speaker_naming`, `term_correction`, `report`, `chat`) trỏ tới một kết nối có trạng thái `ok`.
 - **Thứ tự chọn kết nối khi chạy:**
@@ -164,6 +167,7 @@ Trạng thái tác vụ: `queued → preparing → transcribing → finalizing �
   - Có template hệ thống và template tuỳ chỉnh theo phạm vi cá nhân, nhóm hoặc đơn vị.
   - Prompt gồm: hướng dẫn chung, thông tin đơn vị, thông tin cuộc họp, transcript định dạng `[mm:ss] Tên (vai trò): lời`.
   - Kết quả **stream** về trình duyệt và được lưu định kỳ, nên đóng trang vẫn không mất.
+  - Văn bản tạo lỗi (`status = error`) hiện thẻ cảnh báo kèm nút **Tạo lại** (mở hộp thoại chọn sẵn template, xoá bản lỗi khi tạo bản mới) và **Xoá**.
 - **Xuất DOCX:**
   - Khổ A4, lề trên/dưới 20 mm, trái 30 mm, phải 15 mm, Times New Roman 13, theo thể thức NĐ 30/2020.
   - Bảng không viền cho phần quốc hiệu và chữ ký.
@@ -196,6 +200,7 @@ Trạng thái tác vụ: `queued → preparing → transcribing → finalizing �
 - Số tin chưa đọc lấy từ RPC `my_channels()`.
 - Transcript lưu kèm **số phiên bản** (optimistic concurrency): hai người sửa cùng lúc thì người sau được báo tải lại, không ghi đè nhau.
 - Tiến độ phiên âm cập nhật qua Realtime, kèm thăm dò 5 s làm dự phòng.
+- Danh sách văn bản tổng hợp cập nhật qua Realtime trên bảng `reports` (migration `20260927000000_reports_realtime.sql`), kèm thăm dò 10 s khi tab đang hiển thị: văn bản tạo nền sau phiên âm hoặc do người khác tạo hiện ngay, không cần tải lại trang.
 
 ## 8. Kiểm thử
 

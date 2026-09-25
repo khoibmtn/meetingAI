@@ -50,6 +50,7 @@ SPEAKER DIARIZATION
 - Labels follow the VOICE, not the role or the length of a turn: the chair may moderate briefly and also give long explanations — keep the chair's label for both; never give the presenter's label to someone else's long explanation.
 - A person invited by name ("mời anh/bác sĩ X") is the one who replies next — never label that reply with the label of someone who already spoke just because the role looks similar.
 - If VOICE SAMPLES of known speakers are attached after the main audio, compare every voice in the main audio with them to choose labels. Never transcribe the voice samples themselves.
+- Very short interjections (greetings, roll-call answers, "vâng", "dạ", laughter) from voices you cannot match to a known speaker: use ONE shared label "S0" (unidentified participants) — never create a new label for each of them.
 - In "speakers", list every label used. Fill "name" ONLY when the person's name is stated or clearly implied (e.g. "mời bác sĩ Quang trình bày" → the next presenter is Bác sĩ Quang; "cảm ơn thầy Hiển"). Use the honorific form used in the meeting (Thầy Hiển, BS. Quang). Never add academic titles or positions (GS., PGS., TS., Trưởng khoa…) that were not spoken. Fill "role" when evident (Chủ tọa, Người trình bày, Thư ký, Thành viên). Give a short "description" of voice/role to help identify the speaker later.
 
 NON-SPEECH
@@ -155,7 +156,8 @@ export function buildChunkPrompt(input: ChunkPromptInput): string {
         "hoặc đang tiếp tục phần trình bày). Người được mời đích danh (\"mời anh/bác sĩ X\") thì lời đáp ngay sau đó là của X.",
     );
     lines.push(
-      "Giọng mới hoặc không chắc chắn → dùng ID MỚI dạng M1, M2… (tách nhầm còn gộp lại được; gộp nhầm hai người vào một ID thì không sửa được):",
+      "Giọng mới hoặc không chắc chắn → dùng ID MỚI dạng M1, M2… (tách nhầm còn gộp lại được; gộp nhầm hai người vào một ID thì không sửa được). " +
+        "Riêng câu rất ngắn (chào hỏi, “vâng”, “dạ”) của người không rõ giọng → dùng chung ID S0:",
     );
     for (const s of input.roster) {
       const bits = [s.name && !/^Người nói/.test(s.name) ? s.name : null, s.role, s.description].filter(Boolean);

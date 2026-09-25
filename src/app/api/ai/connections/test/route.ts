@@ -3,7 +3,7 @@ import { jsonError, requireApiUser, HttpError } from "@/lib/auth";
 import { testConnection } from "@/lib/ai";
 import { getConnectionRow, recordConnectionStatus, sanitizeParams } from "@/lib/ai/connections";
 import { decryptSecret } from "@/lib/crypto";
-import type { ModelParams, ProviderKind } from "@/lib/ai/catalog";
+import { baseUrlError, type ModelParams, type ProviderKind } from "@/lib/ai/catalog";
 
 export const maxDuration = 90;
 
@@ -24,6 +24,8 @@ export async function POST(request: NextRequest) {
   try {
     const { user, profile } = await requireApiUser();
     const body = (await request.json()) as Body;
+    const urlError = baseUrlError(body.baseUrl);
+    if (urlError) throw new HttpError(400, urlError);
     let apiKey = body.apiKey?.trim() || "";
     let savedId: string | undefined;
     if (body.id) {

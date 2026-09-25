@@ -57,8 +57,10 @@ import {
 import {
   assignIds,
   computeCoverage,
+  consolidateMinorSpeakers,
   mergeChunkOutputs,
   mergeGapSegments,
+  OTHERS_NAME,
   talkTimeBySpeaker,
   toAbsoluteSegments,
 } from "./merge";
@@ -1044,6 +1046,15 @@ async function stepFinalize(admin: Admin, jobId: string) {
     } else {
       warnings.push("Chưa có kết nối AI cho bước nhận diện tên người nói.");
     }
+  }
+
+  // Gộp người nói phụ (chưa rõ tên, nói < 20 giây) vào "Thành viên khác" — áp dụng cả cho bản máy gốc
+  const consolidated = consolidateMinorSpeakers(segments, speakers);
+  if (consolidated.merged) {
+    segments = consolidated.segments;
+    machineSegments = consolidateMinorSpeakers(machineSegments, speakers).segments;
+    speakers = consolidated.speakers;
+    warnings.push(`Đã gộp ${consolidated.merged} người nói chưa rõ tên, nói rất ít (chào hỏi, “vâng”…) thành “${OTHERS_NAME}”.`);
   }
 
   // Chỉ giữ người nói có xuất hiện, sắp theo thứ tự lên tiếng
