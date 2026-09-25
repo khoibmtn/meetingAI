@@ -51,6 +51,7 @@ import { InfoPanel, QualityCard } from "./info-panel";
 import { ShareDialog } from "./share-dialog";
 import { ExportMenu } from "./export-menu";
 import { TranscribeDialog } from "./transcribe-dialog";
+import { AudioMissingBar } from "./audio-missing-bar";
 import { useTranscript } from "./use-transcript";
 
 export interface WorkspaceProps {
@@ -69,6 +70,8 @@ export interface WorkspaceProps {
   customTemplates: CustomTemplate[];
   canEdit: boolean;
   isOwner: boolean;
+  /** Đã kết nối Google Drive (tải tệp lên sau sẽ lưu lâu dài). */
+  storageReady: boolean;
 }
 
 export function RecordingWorkspace(props: WorkspaceProps) {
@@ -82,7 +85,7 @@ export function RecordingWorkspace(props: WorkspaceProps) {
 
 const ACTIVE_JOB = ["queued", "preparing", "transcribing", "finalizing"];
 
-function WorkspaceInner({ recording, transcript, job, reports, customTemplates, canEdit, isOwner }: WorkspaceProps) {
+function WorkspaceInner({ recording, transcript, job, reports, customTemplates, canEdit, isOwner, storageReady }: WorkspaceProps) {
   const router = useRouter();
   const params = useSearchParams();
   const profile = useProfile();
@@ -107,6 +110,12 @@ function WorkspaceInner({ recording, transcript, job, reports, customTemplates, 
   }
   const jobRunning = !!liveJobStatus && ACTIVE_JOB.includes(liveJobStatus);
   const jobFailed = liveJobStatus === "error";
+  // Tệp âm thanh: trên Drive (nghe lại được) hoặc giữ tạm để phiên âm (xoá khi xong)
+  const onDrive = Boolean(recording.drive_file_id) && recording.upload_status === "uploaded";
+  const temporary = recording.upload_status === "temporary";
+  const canTranscribe = onDrive || temporary;
+  // Vừa tải tệp lên để phiên âm (lại) → mở sẵn hộp thoại phiên âm
+  const [autoTranscribe, setAutoTranscribe] = useState(0);
   // Chỉ dựng một bố cục (desktop hoặc di động) sau khi biết kích thước màn hình
   const isDesktop = useMediaQuery("(min-width: 1024px)");
   const showDesktop = isDesktop !== false;
@@ -133,7 +142,7 @@ function WorkspaceInner({ recording, transcript, job, reports, customTemplates, 
   }
 
   async function removeRecording() {
-    if (!window.confirm("Xoá bản ghi này? Tệp âm thanh trên Google Drive sẽ được chuyển vào Thùng rác.")) return;
+    if (!window.confirm(onDrive ? "Xoá bản ghi này? Tệp âm thanh trên Google Drive sẽ được chuyển vào Thùng rác." : "Xoá bản ghi này?")) return;
     try {
       await apiJson(`/api/recordings/${recording.id}`, { method: "DELETE" });
       toast.success("Đã xoá");
@@ -179,13 +188,15 @@ function WorkspaceInner({ recording, transcript, job, reports, customTemplates, 
   ) : (
     <EmptyState
       icon={<ScrollTextIcon />}
-      title={recording.upload_status !== "uploaded" ? "Tệp âm thanh chưa tải lên xong" : "Chưa có transcript"}
+      title={canTranscribe ? "Chưa có transcript" : recording.upload_status === "uploading" ? "Tệp âm thanh chưa tải lên xong" : "Chưa có tệp ghi âm"}
       description={
-        recording.upload_status !== "uploaded"
-          ? "Quá trình tải lên bị gián đoạn. Hãy tạo lại bản ghi với tệp gốc."
-          : "Bấm “Phiên âm” để AI chuyển âm thanh thành văn bản và phân vai người nói."
+        canTranscribe
+          ? "Bấm “Phiên âm” để AI chuyển âm thanh thành văn bản và phân vai người nói."
+          : isOwner
+            ? "Tải tệp ghi âm lên (thanh phía trên) để phiên âm."
+            : "Người tạo bản ghi cần tải tệp ghi âm lên trước khi phiên âm."
       }
-      action={canEdit && recording.upload_status === "uploaded" ? <TranscribeDialog recordingId={recording.id} hasTranscript={false} /> : undefined}
+      action={canEdit && canTranscribe ? <TranscribeDialog recordingId={recording.id} hasTranscript={false} temporary={temporary} /> : undefined}
     />
   );
 
@@ -221,7 +232,7 @@ function WorkspaceInner({ recording, transcript, job, reports, customTemplates, 
           <h1 className="text-xl leading-tight font-semibold tracking-tight sm:text-2xl">{recording.title}</h1>
           <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
             <Badge variant="outline">{categoryLabel(recording.category)}</Badge>
-            <RecordingStatusBadge status={recording.status} uploadStatus={recording.upload_status} />
+            <RecordingStatusBadge status={recording.status} uploadStatus={recording.upload_status} showStorage />
             <span className="flex items-center gap-1">
               <CalendarIcon className="size-4" />
               {format(new Date(recording.meeting_date ?? recording.created_at), "dd/MM/yyyy")}
@@ -244,8 +255,15 @@ function WorkspaceInner({ recording, transcript, job, reports, customTemplates, 
         <div className="flex flex-wrap items-center gap-2">
           <ShareDialog recordingId={recording.id} recordingTitle={recording.title} isOwner={isOwner} />
           <ExportMenu title={recording.title} segments={segments} speakers={speakers} />
-          {canEdit && recording.upload_status === "uploaded" ? (
-            <TranscribeDialog recordingId={recording.id} hasTranscript={segments.length > 0} disabled={jobRunning} />
+          {canEdit && canTranscribe ? (
+            <TranscribeDialog
+              key={autoTranscribe}
+              recordingId={recording.id}
+              hasTranscript={segments.length > 0}
+              disabled={jobRunning}
+              temporary={temporary}
+              defaultOpen={autoTranscribe > 0 && !jobRunning}
+            />
           ) : null}
           {canEdit || isOwner ? (
             <DropdownMenu>
@@ -282,7 +300,20 @@ function WorkspaceInner({ recording, transcript, job, reports, customTemplates, 
       {transcript?.quality && transcript.quality.coverageRatio < 0.9 && segments.length ? <QualityCard quality={transcript.quality} /> : null}
       {player.error ? <p className="text-sm text-destructive">{player.error}</p> : null}
 
-      <PlayerBar segments={segments} speakers={speakers} className="sticky top-14 z-20 lg:top-2" />
+      {onDrive ? (
+        <PlayerBar segments={segments} speakers={speakers} className="sticky top-14 z-20 lg:top-2" />
+      ) : (
+        <AudioMissingBar
+          recordingId={recording.id}
+          uploadStatus={recording.upload_status}
+          isOwner={isOwner}
+          storageReady={storageReady}
+          hasTranscript={segments.length > 0}
+          jobRunning={jobRunning}
+          jobFailed={jobFailed}
+          onRequestTranscribe={() => setAutoTranscribe((n) => n + 1)}
+        />
+      )}
 
       {/* Desktop: 2 cột */}
       {showDesktop ? (

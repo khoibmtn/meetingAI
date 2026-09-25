@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { format } from "date-fns";
-import { ChevronDownIcon, FileAudioIcon, MicIcon, UploadCloudIcon, XIcon } from "lucide-react";
+import { ChevronDownIcon, DownloadIcon, FileAudioIcon, MicIcon, UploadCloudIcon, XIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { useProfile } from "@/components/profile-context";
 import { Button } from "@/components/ui/button";
@@ -21,7 +21,8 @@ import { CATEGORIES } from "@/components/recordings/category";
 import { ConnectionSelect } from "@/components/ai/connection-select";
 import { useConnectionChoice, useConnections } from "@/components/ai/use-connections";
 import { apiJson } from "@/lib/client/api";
-import { readAudioDuration, uploadRecordingFile, type UploadProgress } from "@/lib/client/upload";
+import { readAudioDuration, uploadRecordingFile, type UploadProgress, type UploadTarget } from "@/lib/client/upload";
+import { TEMP_AUDIO_MAX_BYTES } from "@/lib/audio/limits";
 import { clearSession } from "@/lib/client/recorder-store";
 import { DEFAULT_AUTO_TEMPLATE, SYSTEM_TEMPLATES } from "@/lib/reports/templates";
 import { PROVIDERS } from "@/lib/ai/catalog";
@@ -59,6 +60,9 @@ export function NewRecordingForm({ initialMode, storageReady = true }: { initial
   const [nameSpeakers, setNameSpeakers] = useState(true);
   const [correctTerms, setCorrectTerms] = useState<boolean | null>(null);
 
+  // Chưa kết nối Drive (hoặc Drive lỗi): giữ tệp tạm chỉ để phiên âm rồi xoá
+  const [target, setTarget] = useState<UploadTarget>(storageReady ? "drive" : "temp");
+  const [driveError, setDriveError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<UploadProgress | null>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -71,6 +75,11 @@ export function NewRecordingForm({ initialMode, storageReady = true }: { initial
 
   const selectedConn = useMemo(() => conns?.connections.find((c) => c.id === connectionId), [conns, connectionId]);
   const isSoniox = selectedConn?.provider === "soniox";
+  const tempMode = target === "temp";
+  const tooBigForTemp = !!file && file.size > TEMP_AUDIO_MAX_BYTES;
+  const tempLimit = formatBytes(TEMP_AUDIO_MAX_BYTES);
+  // Không lưu tệp thì bắt buộc phiên âm ngay (tệp tạm chỉ để phiên âm)
+  const willTranscribe = transcribe || tempMode;
 
   async function acceptFile(f: File) {
     setFile(f);
@@ -80,6 +89,16 @@ export function NewRecordingForm({ initialMode, storageReady = true }: { initial
     setDuration(await readAudioDuration(f));
   }
 
+  function downloadRecording() {
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = file.name ?? `${title.trim() || "ghi-am"}.${file.type.includes("mp4") ? "m4a" : "webm"}`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  }
+
   function onRecorded(r: RecordedAudio) {
     setFile(r.blob);
     setDuration(r.durationSec || null);
@@ -87,10 +106,16 @@ export function NewRecordingForm({ initialMode, storageReady = true }: { initial
     if (!title) setTitle(`Ghi âm ${format(new Date(), "dd/MM/yyyy HH:mm")}`);
   }
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit(e?: React.FormEvent, targetOverride?: UploadTarget) {
+    e?.preventDefault();
+    const dest = targetOverride ?? target;
+    if (targetOverride) setTarget(targetOverride);
     if (!file) return toast.error("Chọn tệp ghi âm hoặc ghi âm trước");
     if (!title.trim()) return toast.error("Nhập tiêu đề");
+    if (dest === "temp" && file.size > TEMP_AUDIO_MAX_BYTES) {
+      return toast.error(`Tệp lớn hơn ${tempLimit} — cần kết nối Google Drive để lưu và phiên âm tệp này`);
+    }
+    setDriveError(null);
     setBusy(true);
     const supabase = createClient();
     try {
@@ -120,10 +145,21 @@ export function NewRecordingForm({ initialMode, storageReady = true }: { initial
       const ext = file.type.includes("mp4") ? "m4a" : file.type.includes("ogg") ? "ogg" : "webm";
       const named = file.name ? file : Object.assign(file, { name: `${title.trim()}.${ext}` });
       abortRef.current = new AbortController();
-      await uploadRecordingFile(id, named, setProgress, abortRef.current.signal);
+      try {
+        await uploadRecordingFile(id, named, setProgress, abortRef.current.signal, dest);
+      } catch (err) {
+        // Drive lỗi → cho chọn thử lại hoặc phiên âm mà không lưu tệp
+        if (dest === "drive" && (err as Error).name !== "AbortError") {
+          setDriveError((err as Error).message);
+          setProgress(null);
+          setBusy(false);
+          return;
+        }
+        throw err;
+      }
       if (recSession) await clearSession(recSession).catch(() => {});
 
-      if (transcribe) {
+      if (transcribe || dest === "temp") {
         await apiJson(`/api/recordings/${id}/transcribe`, {
           method: "POST",
           json: {
@@ -136,9 +172,15 @@ export function NewRecordingForm({ initialMode, storageReady = true }: { initial
             correctTerms: correctTerms ?? isSoniox,
             autoReportTemplate: autoReport || null,
           },
-        }).catch((err) => toast.error(`Đã lưu tệp nhưng chưa bắt đầu phiên âm được: ${(err as Error).message}`));
+        }).catch((err) =>
+          toast.error(
+            dest === "temp"
+              ? `Chưa bắt đầu phiên âm được: ${(err as Error).message}. Mở bản ghi và bấm “Phiên âm” — tệp tạm được giữ tối đa 7 ngày.`
+              : `Đã lưu tệp nhưng chưa bắt đầu phiên âm được: ${(err as Error).message}`,
+          ),
+        );
       }
-      toast.success(transcribe ? "Đã tải lên — đang phiên âm" : "Đã tải lên");
+      toast.success(dest === "temp" ? "Đã nhận tệp — đang phiên âm (không lưu tệp ghi âm)" : transcribe ? "Đã tải lên — đang phiên âm" : "Đã tải lên");
       router.push(`/recordings/${id}`);
     } catch (err) {
       if ((err as Error).name === "AbortError") toast.message("Đã huỷ tải lên");
@@ -150,12 +192,16 @@ export function NewRecordingForm({ initialMode, storageReady = true }: { initial
   const pct = progress && progress.total ? Math.round((progress.loaded / progress.total) * 100) : 0;
 
   return (
-    <form onSubmit={submit} className="grid gap-6 lg:grid-cols-[1fr_380px]">
-      <div className="space-y-6">
+    <form onSubmit={submit} className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="min-w-0 space-y-6">
         <Card>
           <CardHeader>
             <CardTitle>1. Nguồn âm thanh</CardTitle>
-            <CardDescription>Tệp gốc được lưu nguyên vẹn trên Google Drive của đơn vị, không nén lại.</CardDescription>
+            <CardDescription>
+              {tempMode
+                ? "Không lưu tệp ghi âm: tệp chỉ được giữ tạm để phiên âm rồi tự xoá. Bản ghi giữ lại transcript; có thể tải tệp lên sau."
+                : "Tệp gốc được lưu nguyên vẹn trên Google Drive của đơn vị, không nén lại."}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <Tabs value={mode} onValueChange={(v) => setMode(v as "upload" | "record")}>
@@ -214,6 +260,19 @@ export function NewRecordingForm({ initialMode, storageReady = true }: { initial
             ) : (
               <Recorder onComplete={onRecorded} />
             )}
+            {file && tempMode && tooBigForTemp ? (
+              <p className="text-sm text-destructive">
+                Tệp lớn hơn {tempLimit}: cần kết nối Google Drive để lưu và phiên âm tệp này.
+              </p>
+            ) : null}
+            {file && tempMode && recSession ? (
+              <p className="flex flex-wrap items-center gap-x-2 text-sm text-muted-foreground">
+                Tệp ghi âm sẽ không được lưu trên hệ thống.
+                <Button type="button" variant="link" className="h-auto p-0" onClick={downloadRecording}>
+                  <DownloadIcon /> Tải bản ghi âm về máy
+                </Button>
+              </p>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -272,7 +331,7 @@ export function NewRecordingForm({ initialMode, storageReady = true }: { initial
         </Card>
       </div>
 
-      <div className="space-y-6">
+      <div className="min-w-0 space-y-6">
         <Card className="lg:sticky lg:top-6">
           <CardHeader>
             <CardTitle>3. Xử lý bằng AI</CardTitle>
@@ -280,10 +339,13 @@ export function NewRecordingForm({ initialMode, storageReady = true }: { initial
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="flex items-center justify-between gap-3">
-              <Label htmlFor="tr">Phiên âm & phân vai ngay</Label>
-              <Switch id="tr" checked={transcribe} onCheckedChange={setTranscribe} />
+              <div>
+                <Label htmlFor="tr">Phiên âm & phân vai ngay</Label>
+                {tempMode ? <p className="text-xs text-muted-foreground">Bắt buộc khi không lưu tệp ghi âm.</p> : null}
+              </div>
+              <Switch id="tr" checked={willTranscribe} onCheckedChange={setTranscribe} disabled={tempMode} />
             </div>
-            {transcribe ? (
+            {willTranscribe ? (
               <>
                 <div className="space-y-1.5">
                   <Label>Mô hình phiên âm</Label>
@@ -371,15 +433,39 @@ export function NewRecordingForm({ initialMode, storageReady = true }: { initial
             {progress ? (
               <div className="space-y-1.5">
                 <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>Đang tải lên Google Drive… {pct}%</span>
+                  <span>{tempMode ? "Đang gửi tệp để phiên âm…" : "Đang tải lên Google Drive…"} {pct}%</span>
                   <span>{progress.speedBps ? `${formatBytes(progress.speedBps)}/s` : ""}</span>
                 </div>
                 <Progress value={pct} />
               </div>
             ) : null}
+            {driveError ? (
+              <div role="alert" className="space-y-2 rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
+                <p className="font-medium text-destructive">Không tải được lên Google Drive</p>
+                <p className="break-words text-muted-foreground">{driveError}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" size="sm" variant="outline" onClick={() => submit(undefined, "drive")}>
+                    Thử lại
+                  </Button>
+                  <Button type="button" size="sm" onClick={() => submit(undefined, "temp")} disabled={tooBigForTemp}>
+                    Phiên âm, không lưu tệp
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  {tooBigForTemp
+                    ? `Tệp lớn hơn ${tempLimit} nên không phiên âm tạm được.`
+                    : "Tệp chỉ được giữ tạm để phiên âm rồi tự xoá; có thể tải tệp lên Drive sau."}
+                </p>
+              </div>
+            ) : null}
             <div className="flex gap-2">
-              <Button type="submit" className="h-10 flex-1" disabled={busy || !file || !storageReady} title={storageReady ? undefined : "Chưa kết nối Google Drive"}>
-                {busy ? "Đang xử lý…" : transcribe ? "Lưu & phiên âm" : "Lưu bản ghi"}
+              <Button
+                type="submit"
+                className="h-10 flex-1"
+                disabled={busy || !file || (tempMode && tooBigForTemp)}
+                title={tempMode ? "Tệp chỉ được giữ tạm để phiên âm rồi tự xoá" : undefined}
+              >
+                {busy ? "Đang xử lý…" : tempMode ? "Phiên âm (không lưu tệp)" : transcribe ? "Lưu & phiên âm" : "Lưu bản ghi"}
               </Button>
               {busy ? (
                 <Button type="button" variant="outline" className="h-10" onClick={() => abortRef.current?.abort()}>

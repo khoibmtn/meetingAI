@@ -103,8 +103,13 @@ export async function startTranscription(params: {
   const admin = createAdminClient();
   const { data: recording } = await admin.from("recordings").select("*").eq("id", params.recordingId).single();
   if (!recording) throw new Error("Không tìm thấy bản ghi");
-  if (!recording.drive_file_id || recording.upload_status !== "uploaded") {
-    throw new Error("Tệp âm thanh chưa tải lên xong");
+  const onDrive = Boolean(recording.drive_file_id) && recording.upload_status === "uploaded";
+  if (!onDrive && recording.upload_status !== "temporary") {
+    throw new Error(
+      recording.upload_status === "uploading"
+        ? "Tệp âm thanh chưa tải lên xong"
+        : "Chưa có tệp ghi âm — hãy tải tệp lên trước khi phiên âm",
+    );
   }
 
   // Tránh chạy trùng

@@ -11,6 +11,7 @@
 - Tải tệp lên (m4a, mp3, wav, …, tối đa 2 GB), hoặc ghi âm trực tiếp trên trình duyệt.
 - Bản đang ghi được lưu tạm trên máy, nên mất mạng hay đóng tab vẫn khôi phục được.
 - **Tệp gốc lưu nguyên vẹn trên Google Drive** của đơn vị, không nén lại.
+- **Phiên âm không lưu tệp:** khi chưa kết nối hoặc không tải được lên Drive, tệp (tối đa 200 MB) chỉ được giữ tạm để phiên âm rồi tự xoá; bản ghi vẫn giữ transcript. Có thể tải tệp lên sau để nghe lại theo từng câu hoặc phiên âm lại.
 
 ### Phiên âm
 - **Gemini** (mặc định):
@@ -69,7 +70,8 @@ Cần có:
 ### Bước 1. Supabase
 
 1. Tạo project. Vào **Project Settings → API Keys**, lấy **publishable key** (`sb_publishable_…`) và **secret key** (`sb_secret_…`). Khoá cũ anon/service_role vẫn dùng được.
-2. Chạy migration: mở **SQL Editor**, dán toàn bộ nội dung [`supabase/migrations/20260925000000_init.sql`](supabase/migrations/20260925000000_init.sql) rồi bấm **Run**. Nếu dùng Supabase CLI thì chạy `supabase link` rồi `supabase db push`.
+2. Chạy migration: mở **SQL Editor**, lần lượt dán nội dung từng tệp trong [`supabase/migrations/`](supabase/migrations) (theo thứ tự tên tệp) rồi bấm **Run**. Nếu dùng Supabase CLI thì chạy `supabase link` rồi `supabase db push`.
+   - Khi cập nhật ứng dụng, chỉ cần chạy thêm các tệp migration mới (vd `20260926000000_temp_audio.sql` tạo bucket lưu tạm `audio-temp`). **Quản trị → Kiểm tra** báo mục nào còn thiếu.
    - Có thể làm bước này sau khi deploy: nếu CSDL chưa khởi tạo, ứng dụng tự mở trang **Cài đặt ban đầu**, có nút sao chép SQL và liên kết thẳng tới SQL Editor.
    - Tài khoản đã đăng ký trước khi chạy migration vẫn được tạo hồ sơ; người đăng ký sớm nhất là quản trị viên.
    - Migration tạo bảng, phân quyền RLS và bật Realtime cho chat và tiến độ phiên âm.
@@ -165,6 +167,7 @@ Cần có:
 ### Giới hạn khác
 
 - **Google Drive** có dung lượng theo tài khoản: 15 GB miễn phí, hoặc theo gói Google One/Workspace. Một giờ ghi âm m4a khoảng 30–60 MB.
+- **Phiên âm không lưu tệp:** tệp tạm nằm trong Supabase Storage (gói Free: 1 GB) cho tới khi phiên âm xong; tệp tối đa 200 MB. Tệp tạm chưa được phiên âm tự xoá sau 7 ngày (cron hằng ngày).
 - **Dữ liệu người bệnh:** chỉ dùng gói trả phí của nhà cung cấp AI. Ở gói miễn phí của Gemini, nội dung có thể được dùng để cải thiện sản phẩm (xem [RESEARCH.md](docs/RESEARCH.md)).
 
 ## Phát triển trên máy

@@ -60,7 +60,9 @@ PGRST_DB_URI="$AUTH_DB_URL" PGRST_DB_SCHEMAS=public PGRST_DB_ANON_ROLE=anon PGRS
   PGRST_SERVER_HOST=127.0.0.1 PGRST_SERVER_PORT=3001 "$POSTGREST_BIN" > "$OUT/postgrest.log" 2>&1 &
 PIDS+=($!)
 wait_for http://127.0.0.1:3001/ PostgREST
-POSTGREST_URL=http://127.0.0.1:3001 DATABASE_URL="$E2E_DB_URL" node tests/e2e/gateway.mjs > "$OUT/gateway.log" 2>&1 &
+rm -rf "$OUT/storage"
+POSTGREST_URL=http://127.0.0.1:3001 DATABASE_URL="$E2E_DB_URL" STORAGE_DIR="$OUT/storage" \
+  node tests/e2e/gateway.mjs > "$OUT/gateway.log" 2>&1 &
 PIDS+=($!)
 AUDIO="$OUT/audio.m4a" GT="$OUT/gt.json" OMIT="1:60:150" FAIL_ONCE="2:500" LATENCY_MS=300 \
   node tests/e2e/mock-google.mjs > "$OUT/mock.log" 2>&1 &
@@ -86,4 +88,4 @@ wait_for http://127.0.0.1:3100/login "ứng dụng"
 
 echo "▶ Chạy kiểm thử pipeline"
 APP_URL=http://127.0.0.1:3100 SUPABASE_URL=http://127.0.0.1:54321 DATABASE_URL="$E2E_DB_URL" GT="$OUT/gt.json" \
-  node tests/e2e/run-pipeline.mjs
+  AUDIO="$OUT/audio.m4a" STORAGE_DIR="$OUT/storage" node tests/e2e/run-pipeline.mjs

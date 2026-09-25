@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { requirePageUser } from "@/lib/auth";
 import { RecordingWorkspace } from "@/components/recordings/workspace";
+import { isDriveConfigured } from "@/lib/drive/google";
 import type { Segment, Speaker, TranscriptQuality } from "@/lib/transcription/types";
 
 export async function generateMetadata({ params }: PageProps<"/recordings/[id]">): Promise<Metadata> {
@@ -19,7 +20,7 @@ export default async function RecordingPage({ params }: PageProps<"/recordings/[
   const { data: recording } = await supabase.from("recordings").select("*").eq("id", id).maybeSingle();
   if (!recording) notFound();
 
-  const [{ data: transcript }, { data: job }, { data: reports }, { data: canEdit }, { data: templates }] = await Promise.all([
+  const [{ data: transcript }, { data: job }, { data: reports }, { data: canEdit }, { data: templates }, storageReady] = await Promise.all([
     supabase.from("transcripts").select("*").eq("recording_id", id).maybeSingle(),
     supabase.from("transcription_jobs").select("*").eq("recording_id", id).order("created_at", { ascending: false }).limit(1).maybeSingle(),
     supabase
@@ -29,6 +30,7 @@ export default async function RecordingPage({ params }: PageProps<"/recordings/[
       .order("created_at", { ascending: false }),
     supabase.rpc("can_edit_recording", { rid: id }),
     supabase.from("templates").select("id,name,description,category").order("sort_order").order("name"),
+    isDriveConfigured().catch(() => false),
   ]);
 
   return (
@@ -55,6 +57,7 @@ export default async function RecordingPage({ params }: PageProps<"/recordings/[
       customTemplates={templates ?? []}
       canEdit={Boolean(canEdit)}
       isOwner={recording.owner_id === user.id}
+      storageReady={storageReady}
     />
   );
 }

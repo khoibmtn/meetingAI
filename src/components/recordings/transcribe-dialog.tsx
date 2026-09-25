@@ -14,10 +14,24 @@ import { useConnectionChoice, useConnections } from "@/components/ai/use-connect
 import { apiJson } from "@/lib/client/api";
 import { SYSTEM_TEMPLATES } from "@/lib/reports/templates";
 
-export function TranscribeDialog({ recordingId, hasTranscript, disabled }: { recordingId: string; hasTranscript: boolean; disabled?: boolean }) {
+export function TranscribeDialog({
+  recordingId,
+  hasTranscript,
+  disabled,
+  defaultOpen = false,
+  temporary = false,
+}: {
+  recordingId: string;
+  hasTranscript: boolean;
+  disabled?: boolean;
+  /** Mở ngay khi hiện (vd vừa tải tệp lên để phiên âm lại). */
+  defaultOpen?: boolean;
+  /** Tệp chỉ giữ tạm: sẽ bị xoá khi phiên âm xong. */
+  temporary?: boolean;
+}) {
   const router = useRouter();
   const { state: conns } = useConnections();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(defaultOpen);
   const [connectionId, setConnectionId] = useConnectionChoice(conns, "transcription");
   const [chunkMinutes, setChunkMinutes] = useState("10");
   const [normalize, setNormalize] = useState("gain");
@@ -66,8 +80,9 @@ export function TranscribeDialog({ recordingId, hasTranscript, disabled }: { rec
           <DialogTitle>{hasTranscript ? "Phiên âm lại" : "Phiên âm & phân vai"}</DialogTitle>
           <DialogDescription>
             {hasTranscript
-              ? "Transcript hiện tại (kể cả phần đã hiệu đính) sẽ được thay bằng kết quả mới. Tệp âm thanh gốc không thay đổi."
-              : "Chọn mô hình và tuỳ chọn xử lý."}
+              ? "Transcript hiện tại (kể cả phần đã hiệu đính) sẽ được thay bằng kết quả mới."
+              : "Chọn mô hình và tuỳ chọn xử lý."}{" "}
+            {temporary ? "Tệp ghi âm chỉ được giữ tạm và sẽ tự xoá khi phiên âm xong." : hasTranscript ? "Tệp âm thanh gốc không thay đổi." : null}
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-3">

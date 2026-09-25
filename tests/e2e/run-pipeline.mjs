@@ -11,6 +11,9 @@ const GT = JSON.parse(fs.readFileSync(process.env.GT, "utf8"));
 const TIMEOUT_MS = Number(process.env.JOB_TIMEOUT_MS ?? 240_000);
 const REC_GEMINI = "10000000-0000-0000-0000-0000000000e1";
 const REC_SONIOX = "10000000-0000-0000-0000-0000000000e2";
+const REC_TEMP = "10000000-0000-0000-0000-0000000000e3";
+const STORAGE_DIR = process.env.STORAGE_DIR;
+const AUDIO = process.env.AUDIO;
 
 const sql = (q) => execFileSync("psql", [DB, "-At", "-c", q], { encoding: "utf8" }).trim();
 const failures = [];
@@ -40,6 +43,35 @@ async function transcribe(recordingId, body) {
   if (!r.ok) throw new Error(`Không bắt đầu được phiên âm (${r.status}): ${text.slice(0, 300)}`);
   return JSON.parse(text).job.id;
 }
+
+async function api(method, path, body, headers = {}) {
+  const r = await fetch(`${APP}${path}`, {
+    method,
+    headers: { Cookie: cookie, ...(body && !(body instanceof Uint8Array) ? { "Content-Type": "application/json" } : {}), ...headers },
+    body: body instanceof Uint8Array ? body : body ? JSON.stringify(body) : undefined,
+  });
+  const text = await r.text();
+  if (!r.ok) throw new Error(`${method} ${path} → ${r.status}: ${text.slice(0, 300)}`);
+  return JSON.parse(text);
+}
+
+/** Tải tệp lên theo khối như trình duyệt (tuỳ chọn dừng giữa chừng để kiểm tra tiếp tục). */
+async function uploadFile(recordingId, bytes, target, stopAfterChunks = Infinity) {
+  const meta = { filename: "e2e-khong-luu.m4a", mimeType: "audio/mp4", size: bytes.length, target };
+  let { offset, chunkSize, done } = await api("POST", `/api/recordings/${recordingId}/upload`, meta);
+  for (let n = 0; !done && n < stopAfterChunks; n++) {
+    const end = Math.min(offset + chunkSize, bytes.length);
+    ({ offset, done } = await api("PUT", `/api/recordings/${recordingId}/upload?offset=${offset}`, bytes.subarray(offset, end), {
+      "Content-Type": "application/octet-stream",
+    }));
+  }
+  return { offset, done, chunkSize };
+}
+
+const tempParts = (id) => {
+  const dir = `${STORAGE_DIR}/audio-temp/${id}`;
+  return fs.existsSync(dir) ? fs.readdirSync(dir).length : 0;
+};
 
 async function waitJob(jobId) {
   const t0 = Date.now();
@@ -110,6 +142,49 @@ for (let i = 0; i < 40 && !/^(ready|error)/.test(report); i++) {
   report = sql(`select coalesce(max(status), '') from reports where recording_id = '${REC_SONIOX}' and template_key = 'sys:giao-ban'`);
 }
 check(report === "ready", "tự tạo biên bản giao ban sau khi phiên âm");
+
+// ---------------------------------------------------------------------------
+console.log("\n▶ Không lưu tệp: gửi tệp tạm theo khối, phiên âm, tự xoá tệp tạm; tải lại để phiên âm lại");
+const bytes = new Uint8Array(fs.readFileSync(AUDIO));
+const partial = await uploadFile(REC_TEMP, bytes, "temp", 1);
+const resumed = await api("POST", `/api/recordings/${REC_TEMP}/upload`, {
+  filename: "e2e-khong-luu.m4a",
+  mimeType: "audio/mp4",
+  size: bytes.length,
+  target: "temp",
+});
+check(!partial.done && resumed.offset === partial.offset, `tải lên dở được tiếp tục đúng vị trí (${resumed.offset} byte)`);
+const up = await uploadFile(REC_TEMP, bytes, "temp");
+const parts = Math.ceil(bytes.length / up.chunkSize);
+check(up.done && sql(`select upload_status from recordings where id = '${REC_TEMP}'`) === "temporary", "tệp tạm nhận đủ → 'temporary'");
+check(tempParts(REC_TEMP) === parts, `tệp tạm lưu thành ${parts} phần ≤ 4 MiB`);
+// Lỗi ở bước chuẩn bị (kết nối AI sai địa chỉ) → tệp tạm phải được giữ để "Thử lại"
+const jobT = await transcribe(REC_TEMP, { connectionId: "30000000-0000-0000-0000-0000000000e4" });
+check((await waitJob(jobT)) === "error", "kết nối AI hỏng → tác vụ lỗi ở bước chuẩn bị");
+check(
+  sql(`select upload_status from recordings where id = '${REC_TEMP}'`) === "temporary" && tempParts(REC_TEMP) === parts,
+  "tác vụ lỗi: tệp tạm vẫn được giữ",
+);
+sql(`update ai_connections set base_url = 'http://127.0.0.1:4010' where id = '30000000-0000-0000-0000-0000000000e4'`);
+await api("POST", `/api/jobs/${jobT}/resume`, { retryFailed: true });
+check((await waitJob(jobT)) === "done", "“Thử lại” đọc lại tệp tạm và phiên âm xong");
+const nT = Number(transcriptOf(REC_TEMP, "jsonb_array_length(segments)"));
+check(nT === GT.segments.length, `đủ câu: ${nT}/${GT.segments.length}`);
+check(sql(`select upload_status || ':' || coalesce(drive_file_id, '') from recordings where id = '${REC_TEMP}'`) === "discarded:", "xong → 'discarded', không có tệp Drive");
+check(tempParts(REC_TEMP) === 0, "tệp tạm đã bị xoá khỏi Storage");
+check(count(`select count(*) from upload_sessions where recording_id = '${REC_TEMP}'`) === 0, "không còn phiên tải lên");
+const again = await transcribe(REC_TEMP, {}).then(
+  () => "đã chạy",
+  (e) => e.message,
+);
+check(/Chưa có tệp ghi âm/.test(again), "không có tệp thì không phiên âm lại được");
+const audioRes = await fetch(`${APP}/api/recordings/${REC_TEMP}/audio`, { headers: { Cookie: cookie } });
+check(audioRes.status === 404, "không có tệp để phát (404)");
+await uploadFile(REC_TEMP, bytes, "temp");
+const jobT2 = await transcribe(REC_TEMP, { connectionId: "30000000-0000-0000-0000-0000000000e1", gapFill: false });
+check((await waitJob(jobT2)) === "done", "tải lại tệp tạm và phiên âm lại");
+check(transcriptOf(REC_TEMP, "version") === "2", "transcript được thay bằng lượt mới (version 2)");
+check(tempParts(REC_TEMP) === 0 && sql(`select upload_status from recordings where id = '${REC_TEMP}'`) === "discarded", "tệp tạm lại được xoá");
 
 console.log(failures.length ? `\n✘ ${failures.length} kiểm tra thất bại` : "\n✔ Tất cả kiểm tra pipeline đạt");
 process.exit(failures.length ? 1 : 0);

@@ -1,7 +1,8 @@
 // Sinh dữ liệu TỔNG HỢP cho kiểm thử pipeline (không dùng bản ghi thật):
 //   audio.m4a — 25 phút, cứ 8 s có 6 s "tiếng nói" (âm điều biến) + 2 s lặng, trên nền ồn nhẹ
 //   gt.json   — đáp án: 187 câu khớp đúng các quãng có tiếng, 4 người nói
-//   seed.sql  — người dùng, 2 bản ghi (Gemini/Soniox), kết nối AI giả lập (khoá mã hoá bằng APP_ENCRYPTION_KEY)
+//   seed.sql  — người dùng, 3 bản ghi (Gemini/Soniox trên Drive, một bản chưa có tệp — phiên âm không lưu tệp),
+//               kết nối AI giả lập (khoá mã hoá bằng APP_ENCRYPTION_KEY)
 // Chạy: APP_ENCRYPTION_KEY=... node tests/e2e/synthetic.mjs [thư-mục-ra]
 import { execFileSync } from "node:child_process";
 import crypto from "node:crypto";
@@ -71,9 +72,15 @@ insert into public.recordings (id, owner_id, title, category, meeting_date, loca
 values ${recording("10000000-0000-0000-0000-0000000000e1", "E2E Gemini")},
        ${recording("10000000-0000-0000-0000-0000000000e2", "E2E Soniox")};
 
+-- Chưa có tệp (Drive chưa kết nối): phiên âm bằng tệp tạm rồi không lưu
+insert into public.recordings (id, owner_id, title, category, meeting_date, participants)
+values ('10000000-0000-0000-0000-0000000000e3', '00000000-0000-0000-0000-0000000000e0', 'E2E Không lưu tệp', 'giao_ban', '2026-09-25', '${participants}');
+
 insert into public.ai_connections (id, scope, name, provider, base_url, encrypted_key, key_hint, model, params, status, created_by)
 values ('30000000-0000-0000-0000-0000000000e1', 'org', 'Gemini giả lập', 'gemini', '${MOCK}', '${encrypt("mock-gemini-key")}', '…-key', 'gemini-3.8-flash', '{}', 'ok', '00000000-0000-0000-0000-0000000000e0'),
-       ('30000000-0000-0000-0000-0000000000e2', 'org', 'Soniox giả lập', 'soniox', '${MOCK}', '${encrypt("mock-soniox-key")}', '…-key', 'stt-async-v5', '{}', 'ok', '00000000-0000-0000-0000-0000000000e0');
+       ('30000000-0000-0000-0000-0000000000e2', 'org', 'Soniox giả lập', 'soniox', '${MOCK}', '${encrypt("mock-soniox-key")}', '…-key', 'stt-async-v5', '{}', 'ok', '00000000-0000-0000-0000-0000000000e0'),
+       -- Địa chỉ sai: bước chuẩn bị thất bại (kiểm tra tệp tạm được giữ để "Thử lại")
+       ('30000000-0000-0000-0000-0000000000e4', 'org', 'Gemini hỏng', 'gemini', 'http://127.0.0.1:9', '${encrypt("mock-gemini-key")}', '…-key', 'gemini-3.8-flash', '{}', 'ok', '00000000-0000-0000-0000-0000000000e0');
 
 insert into public.ai_assignments (scope, usage, connection_id)
 select 'org', u, '30000000-0000-0000-0000-0000000000e1'

@@ -18,6 +18,8 @@ import {
 } from "./jobs";
 import type { Json, Tables } from "@/lib/database.types";
 import { driveMediaUrl, fetchDriveMedia, getAccessToken } from "@/lib/drive/google";
+import { TEMP_AUDIO_MAX_BYTES } from "@/lib/audio/limits";
+import { discardTempAudio, downloadTempAudio } from "@/lib/storage/temp-audio";
 import {
   analyzeAudio,
   encodeChunk,
@@ -183,7 +185,7 @@ function encodeOptions(opts: JobOptions, meanVolumeDb: number | null): EncodeOpt
 }
 
 /** Tệp gốc tối đa bao nhiêu thì chép vào /tmp (Vercel cho 500 MB); lớn hơn thì ffmpeg đọc thẳng từ Drive. */
-const LOCAL_ORIGINAL_MAX_BYTES = 200 * 1024 * 1024;
+const LOCAL_ORIGINAL_MAX_BYTES = TEMP_AUDIO_MAX_BYTES;
 
 /** Định dạng gửi thẳng tệp gốc cho Soniox (không mã hoá lại). */
 const SONIOX_PASSTHROUGH = /^(audio\/(mp4|x-m4a|m4a|aac|mpeg|mp3|wav|x-wav|wave|flac|x-flac|ogg|webm|opus)|video\/(mp4|webm))$/;
@@ -221,6 +223,13 @@ async function openOriginal(dir: string, fileId: string, sizeBytes: number): Pro
     },
     localPath: null,
   };
+}
+
+/** Tệp giữ tạm (không lưu lên Drive): ghép các phần từ Storage vào /tmp. */
+async function openTempOriginal(dir: string, recordingId: string, sizeBytes: number): Promise<OpenedSource> {
+  const localPath = path.join(dir, "original");
+  await downloadTempAudio(recordingId, localPath, sizeBytes);
+  return { src: { input: localPath }, localPath };
 }
 
 // ---------------------------------------------------------------------------
@@ -275,10 +284,18 @@ async function stepPrepare(admin: Admin, jobId: string) {
   const startedAt = Date.now();
 
   await admin.from("recordings").update({ status: "processing" }).eq("id", recording.id);
-  await patchJob(admin, jobId, { stage: "Đang tải tệp gốc từ Google Drive", progress: 2, error: null });
+  const onDrive = Boolean(recording.drive_file_id) && recording.upload_status === "uploaded";
+  await patchJob(admin, jobId, {
+    stage: onDrive ? "Đang tải tệp gốc từ Google Drive" : "Đang đọc tệp tạm (không lưu sau khi phiên âm)",
+    progress: 2,
+    error: null,
+  });
 
   await withTempDir(async (dir) => {
-    const { src, localPath } = await openOriginal(dir, recording.drive_file_id!, Number(recording.size_bytes ?? 0));
+    const sizeBytes = Number(recording.size_bytes ?? 0);
+    const { src, localPath } = onDrive
+      ? await openOriginal(dir, recording.drive_file_id!, sizeBytes)
+      : await openTempOriginal(dir, recording.id, sizeBytes);
 
     await patchJob(admin, jobId, { stage: "Đang phân tích âm lượng, khoảng lặng và tiếng nói", progress: 5 });
     const analysis = await analyzeAudio(src, dir);
@@ -846,7 +863,14 @@ async function stepFinalize(admin: Admin, jobId: string) {
     .update({ status: "ready", status_message: null, duration_sec: quality.durationSec || recording.duration_sec })
     .eq("id", recording.id);
 
-  await Promise.allSettled(cleanup.map((fn) => fn()));
+  // Phiên âm không lưu tệp: xoá tệp tạm ngay khi đã có transcript
+  if (recording.upload_status === "temporary") {
+    cleanup.push(async () => {
+      await discardTempAudio(recording.id, jobId);
+    });
+  }
+  const cleaned = await Promise.allSettled(cleanup.map((fn) => fn()));
+  for (const c of cleaned) if (c.status === "rejected") console.error(`[job ${jobId}] dọn dẹp`, c.reason);
 
   if (opts.autoReportTemplate) {
     await triggerWorker(job.base_url ?? resolveBaseUrl(), { jobId, step: "autoreport" });

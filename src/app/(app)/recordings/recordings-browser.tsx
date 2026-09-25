@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { format } from "date-fns";
 import { vi } from "date-fns/locale";
-import { AudioLinesIcon, CalendarIcon, ClockIcon, MapPinIcon, SearchIcon, UsersIcon } from "lucide-react";
+import { AudioLinesIcon, CalendarIcon, ClockIcon, CloudOffIcon, MapPinIcon, SearchIcon, UsersIcon } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -150,6 +150,12 @@ export function RecordingsBrowser({ items }: { items: RecordingListItem[] }) {
                     <span className="flex items-center gap-1">
                       <MapPinIcon className="size-3.5" />
                       {r.location}
+                    </span>
+                  ) : null}
+                  {r.uploadStatus === "discarded" ? (
+                    <span className="flex items-center gap-1" title="Tệp ghi âm không được lưu — chỉ giữ transcript">
+                      <CloudOffIcon className="size-3.5" />
+                      Không lưu tệp
                     </span>
                   ) : null}
                   {!r.mine && r.ownerName ? <span>• {r.ownerName}</span> : null}

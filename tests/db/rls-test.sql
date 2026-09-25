@@ -199,4 +199,16 @@ do $$ begin
 end $$;
 reset role;
 
+-- Phiên âm không lưu tệp: trạng thái tệp tạm hợp lệ, bucket riêng tư được tạo
+do $$ begin
+  update public.recordings set upload_status = 'temporary' where id = (select id from public.recordings limit 1);
+  update public.recordings set upload_status = 'discarded' where id = (select id from public.recordings limit 1);
+  begin
+    update public.recordings set upload_status = 'khong-hop-le' where id = (select id from public.recordings limit 1);
+    raise exception 'phai tu choi upload_status la';
+  exception when check_violation then null;
+  end;
+  assert (select not public and file_size_limit = 8388608 from storage.buckets where id = 'audio-temp'), 'bucket audio-temp rieng tu';
+end $$;
+
 select 'RLS OK' as result;

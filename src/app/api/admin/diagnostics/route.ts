@@ -6,6 +6,8 @@ import { serverEnv } from "@/lib/env";
 import { resolveBaseUrl } from "@/lib/transcription/jobs";
 import { resolveConnection } from "@/lib/ai/connections";
 import { PROVIDERS, USAGES } from "@/lib/ai/catalog";
+import { TEMP_AUDIO_BUCKET } from "@/lib/storage/temp-audio";
+import { TEMP_AUDIO_MAX_BYTES } from "@/lib/audio/limits";
 
 export const maxDuration = 60;
 
@@ -72,6 +74,18 @@ export async function GET(request: NextRequest) {
       });
     } catch (e) {
       checks.push({ key: "worker", label: "Worker xử lý âm thanh (ffmpeg)", ok: false, detail: message(e) });
+    }
+
+    {
+      const { error } = await createAdminClient().storage.getBucket(TEMP_AUDIO_BUCKET);
+      checks.push({
+        key: "temp",
+        label: "Lưu tạm để phiên âm khi không lưu lên Drive",
+        ok: !error,
+        detail: error
+          ? `Chưa có bucket “${TEMP_AUDIO_BUCKET}” (${error.message}) — chạy migration mới trong supabase/migrations`
+          : `Sẵn sàng — tệp tối đa ${TEMP_AUDIO_MAX_BYTES / 1024 / 1024} MB, tự xoá khi phiên âm xong`,
+      });
     }
 
     for (const u of USAGES) {

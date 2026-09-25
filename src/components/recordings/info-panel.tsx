@@ -111,6 +111,8 @@ export function InfoPanel({
       <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 rounded-lg border bg-muted/30 p-3 text-sm">
         <dt className="text-muted-foreground">Tệp gốc</dt>
         <dd className="truncate">{recording.original_filename ?? "—"}</dd>
+        <dt className="text-muted-foreground">Lưu trữ</dt>
+        <dd>{storageLabel(recording)}</dd>
         <dt className="text-muted-foreground">Dung lượng</dt>
         <dd>{formatBytes(recording.size_bytes)}</dd>
         <dt className="text-muted-foreground">Thời lượng</dt>
@@ -170,4 +172,11 @@ export function QualityCard({ quality }: { quality: TranscriptQuality }) {
       ) : null}
     </div>
   );
+}
+
+function storageLabel(r: { upload_status: string; drive_file_id: string | null }): string {
+  if (r.upload_status === "uploaded" && r.drive_file_id) return "Google Drive";
+  if (r.upload_status === "temporary") return "Tệp tạm — tự xoá khi phiên âm xong";
+  if (r.upload_status === "discarded") return "Không lưu tệp (chỉ giữ transcript)";
+  return "Chưa có tệp";
 }

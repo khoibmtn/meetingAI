@@ -26,6 +26,17 @@ alter default privileges in schema public grant all on tables to anon, authentic
 alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
 alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
 create publication supabase_realtime;
+-- Storage: chỉ bảng bucket (migration tạo bucket riêng tư cho tệp tạm)
+create schema storage;
+create table storage.buckets (
+  id text primary key,
+  name text not null unique,
+  public boolean not null default false,
+  file_size_limit bigint,
+  allowed_mime_types text[],
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
 -- Vai trò đăng nhập của PostgREST (chỉ dùng cho kiểm thử e2e cục bộ)
 do $$
 begin

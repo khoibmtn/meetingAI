@@ -8,8 +8,11 @@ export interface UploadProgress {
   speedBps: number;
 }
 
+/** Nơi nhận tệp: Google Drive (lưu lâu dài) hoặc tạm — chỉ để phiên âm, xoá khi xong. */
+export type UploadTarget = "drive" | "temp";
+
 /**
- * Tải tệp lên Google Drive qua API (resumable, từng khối 4 MiB). Tự thử lại khi lỗi mạng
+ * Tải tệp lên qua API (resumable, từng khối 4 MiB). Tự thử lại khi lỗi mạng
  * và tiếp tục từ vị trí server báo. Tệp gốc được giữ nguyên vẹn.
  */
 export async function uploadRecordingFile(
@@ -17,11 +20,13 @@ export async function uploadRecordingFile(
   file: Blob & { name?: string },
   onProgress: (p: UploadProgress) => void,
   signal?: AbortSignal,
+  target: UploadTarget = "drive",
 ): Promise<void> {
   const filename = file.name || `ghi-am-${Date.now()}.webm`;
+  const meta = { filename, mimeType: file.type || "application/octet-stream", size: file.size, target };
   const init = await apiJson<{ done: boolean; offset: number; chunkSize: number }>(
     `/api/recordings/${recordingId}/upload`,
-    { method: "POST", json: { filename, mimeType: file.type || "application/octet-stream", size: file.size } },
+    { method: "POST", json: meta },
   );
   let offset = init.offset;
   const chunkSize = init.chunkSize;
@@ -52,7 +57,7 @@ export async function uploadRecordingFile(
       // Hỏi lại vị trí đã nhận được
       const status = await apiJson<{ done: boolean; offset: number }>(`/api/recordings/${recordingId}/upload`, {
         method: "POST",
-        json: { filename, mimeType: file.type || "application/octet-stream", size: file.size },
+        json: meta,
       }).catch(() => null);
       if (status?.done) return;
       if (status) offset = status.offset;

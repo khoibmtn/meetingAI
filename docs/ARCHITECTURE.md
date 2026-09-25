@@ -33,6 +33,10 @@ flowchart LR
 - **Tải lên:** Vercel giới hạn thân request 4,5 MB, nên trình duyệt gửi từng khúc 4 MiB (bội số 256 KiB theo yêu cầu của Drive) qua `/api/recordings/[id]/upload`. Server mở **resumable session** trên Drive, chuyển tiếp từng khúc và trả `offset` kế tiếp. Mất mạng giữa chừng thì hỏi trạng thái phiên và **tiếp tục từ byte còn thiếu**.
 - **Ghi âm trực tiếp:** các khúc ghi được lưu tạm vào IndexedDB, nên đóng tab hay mất điện vẫn khôi phục được. Wake Lock giữ màn hình sáng. Ghi âm tắt echo cancellation, noise suppression và AGC để giữ tín hiệu gốc.
 - **Phát lại:** `/api/recordings/[id]/audio` kiểm tra quyền xem qua RLS, rồi chuyển tiếp HTTP Range sang Drive. Mỗi phản hồi `206` tối đa 8 MB, nên tua nhanh được trên cả Safari/iOS.
+- **Phiên âm không lưu tệp** (`target: "temp"`): khi chưa kết nối hoặc không tải được lên Drive, cùng API tải lên ghi từng khúc 4 MiB thành các đối tượng `audio-temp/<recording>/<offset>.part` trong Supabase Storage (bucket riêng tư, chỉ service role; mỗi phần dưới giới hạn 50 MB/tệp của gói Free). Tiếp tục khi mất mạng bằng cách đếm số byte liền mạch đã có. Đủ phần thì `upload_status = 'temporary'`.
+  - Bước *prepare* ghép các phần vào `/tmp` rồi xử lý như tệp Drive (vì vậy giới hạn 200 MB).
+  - Khi transcript đã lưu (job `done`) và không còn job nào khác cần tệp, các phần bị xoá và `upload_status = 'discarded'`: bản ghi chỉ giữ transcript. Job lỗi thì giữ tệp tạm để "Thử lại"; cron `watchdog` xoá tệp tạm quá 7 ngày và phiên tải lên tạm bỏ dở.
+  - Tải tệp lên sau (trang bản ghi): lên Drive nếu đã kết nối (tệp tạm cũ bị xoá), nếu không thì lại giữ tạm và mở sẵn hộp thoại phiên âm lại.
 
 ## 3. Pipeline phiên âm
 

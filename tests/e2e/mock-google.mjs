@@ -16,7 +16,8 @@ import fs from "node:fs";
 const PORT = Number(process.env.MOCK_PORT ?? 4010);
 const AUDIO = process.env.AUDIO;
 const GT = JSON.parse(fs.readFileSync(process.env.GT, "utf8"));
-const [omitChunk, omitFrom, omitTo] = (process.env.OMIT ?? "").split(":").map(Number);
+// Không đặt OMIT thì không bỏ sót đoạn nào ("".split → [0] sẽ bị hiểu nhầm là đoạn 0)
+const [omitChunk, omitFrom, omitTo] = process.env.OMIT ? process.env.OMIT.split(":").map(Number) : [-1, 0, 0];
 const LATENCY_MS = Number(process.env.LATENCY_MS ?? 300);
 const rules = (name) =>
   (process.env[name] ?? "")
