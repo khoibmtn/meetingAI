@@ -141,6 +141,19 @@ describe("similarity & speakers", () => {
     expect(mapping["0:S1"]).toBe("S1");
     expect(mapping["1:S1"]).not.toBe("S1");
   });
+  it("giọng mới ở các đoạn chạy song song (M1) không bị gộp nhầm; cùng tên thì về một người", () => {
+    const { mapping, speakers } = reconcileSpeakers([
+      { chunkIdx: 0, speakers: [{ id: "S1", name: "Thầy" }, { id: "S2", name: "BS. Quang" }], talkTime: { S1: 60, S2: 300 } },
+      { chunkIdx: 1, speakers: [{ id: "S1" }, { id: "M1", name: "" }], talkTime: { S1: 40, M1: 30 } },
+      { chunkIdx: 2, speakers: [{ id: "S1" }, { id: "M1", name: "BS. Dương" }], talkTime: { S1: 20, M1: 25 } },
+      { chunkIdx: 3, speakers: [{ id: "M2", name: "Bác sĩ Dương" }], talkTime: { M2: 10 } },
+    ]);
+    expect(mapping["1:S1"]).toBe("S1");
+    expect(new Set([mapping["1:M1"], mapping["2:M1"]]).size).toBe(2); // hai người mới khác nhau
+    expect(mapping["3:M2"]).toBe(mapping["2:M1"]); // cùng tên Dương → một người
+    expect(speakers.find((s) => s.key === mapping["2:M1"])?.name).toBe("BS. Dương");
+    expect(normalizeSpeakerId("M1")).toBe("M1");
+  });
 });
 
 describe("merge", () => {

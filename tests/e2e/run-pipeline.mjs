@@ -130,6 +130,10 @@ check(
   count(`select count(*) from transcripts, jsonb_array_elements(segments) s where recording_id = '${REC_GEMINI}' and s->'flags' ? 'gap_fill'`) > 0,
   "có câu được tìm lại ở lượt quét bổ sung (cờ gap_fill)",
 );
+check(
+  transcriptOf(REC_GEMINI, "model") === "gemini-2.5-flash",
+  `transcript ghi mô hình THỰC đã phiên âm (mọi đoạn chạy dự phòng): ${transcriptOf(REC_GEMINI, "model")}`,
+);
 const coverage = Number(transcriptOf(REC_GEMINI, "(quality->>'coverageRatio')"));
 check(coverage >= 0.97, `độ phủ ≥ 97% (${(coverage * 100).toFixed(1)}%)`);
 const names = sql(
@@ -165,6 +169,23 @@ for (let i = 0; i < 40 && !/^(ready|error)/.test(report); i++) {
   report = sql(`select coalesce(max(status), '') from reports where recording_id = '${REC_SONIOX}' and template_key = 'sys:giao-ban'`);
 }
 check(report === "ready", "tự tạo biên bản giao ban sau khi phiên âm");
+
+// ---------------------------------------------------------------------------
+console.log("\n▶ Báo cáo khi mô hình chính quá tải: chuyển sang dự phòng và ghi đúng mô hình đã trả lời");
+const rr = await fetch(`${APP}/api/recordings/${REC_GEMINI}/reports`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json", Cookie: cookie },
+  body: JSON.stringify({ templateKey: "sys:tom-tat-nhanh", connectionId: "30000000-0000-0000-0000-0000000000e6" }),
+});
+const reportText = await rr.text();
+const reportId = rr.headers.get("x-report-id");
+check(rr.ok && reportText.includes("giả lập"), `báo cáo được sinh (${rr.status})`);
+let served = "";
+for (let i = 0; i < 20 && !served.startsWith("ready"); i++) {
+  await new Promise((r) => setTimeout(r, 500));
+  served = sql(`select status || ':' || model from reports where id = '${reportId}'`);
+}
+check(served === "ready:gemini-2.5-flash", `báo cáo ghi mô hình dự phòng đã trả lời: ${served}`);
 
 // ---------------------------------------------------------------------------
 console.log("\n▶ Kiểm tra kết nối khi Gemini quá tải: báo lỗi tạm thời, không khoá kết nối");

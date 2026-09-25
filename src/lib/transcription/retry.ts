@@ -50,3 +50,14 @@ export function chunkModel(
   if (prevAttempts >= FALLBACK_AFTER_OVERLOADS && isCapacityMessage(prevError)) return fallback;
   return conn.model;
 }
+
+/**
+ * Mô hình THỰC đã phiên âm (ghi vào transcript, hiển thị cho người dùng) từ mô hình của từng đoạn:
+ * chỉ mô hình chính → "chính"; toàn bộ chạy dự phòng → tên mô hình dự phòng; lẫn lộn → "chính + dự phòng".
+ */
+export function servedModelLabel(primary: string, used: (string | null | undefined)[]): string {
+  const models = [...new Set(used.map((m) => m?.trim() || primary))];
+  const others = models.filter((m) => m !== primary);
+  if (!others.length) return primary;
+  return models.includes(primary) ? `${primary} + ${others.join(", ")}` : others.join(", ");
+}

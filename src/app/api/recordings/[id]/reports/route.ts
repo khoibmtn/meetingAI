@@ -35,10 +35,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       .single();
     if (error || !report) throw new Error(error?.message ?? "Không tạo được báo cáo");
 
-    return textStreamResponse(streamReport(id, template, conn), {
+    // Mô hình thực sự trả lời (mô hình dự phòng nếu mô hình chính quá tải) — ghi đúng vào báo cáo
+    let servedModel = conn.model;
+    const stream = streamReport(id, template, conn, { onModel: (m) => (servedModel = m) });
+    return textStreamResponse(stream, {
       headers: { "x-report-id": report.id },
       onDone: async (text) => {
-        await admin.from("reports").update({ content: cleanupMarkdown(text), status: "ready" }).eq("id", report.id);
+        await admin
+          .from("reports")
+          .update({ content: cleanupMarkdown(text), status: "ready", model: servedModel })
+          .eq("id", report.id);
       },
       onError: async (err, partial) => {
         await admin

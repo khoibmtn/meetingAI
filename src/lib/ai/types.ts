@@ -26,6 +26,8 @@ export interface TextRequest {
   /** Mức tối thiểu cho độ dài đầu ra (tác vụ cần đầu ra dài như biên bản). */
   minOutputTokens?: number;
   signal?: AbortSignal;
+  /** Báo mô hình thực sự trả lời (khác conn.model khi đã chuyển sang mô hình dự phòng). */
+  onModel?: (model: string) => void;
 }
 
 export interface JsonRequest extends TextRequest {

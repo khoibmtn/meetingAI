@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "@google/genai";
 import { AiError, GEMINI_OVERLOADED, GEMINI_RATE_LIMITED } from "@/lib/ai/types";
 import { mapGeminiError } from "@/lib/ai/providers/gemini";
-import { chunkModel, isTransientError, maxAttemptsFor, MAX_TRANSIENT_WAIT_MS, retryDelayMs } from "./retry";
+import { chunkModel, isTransientError, maxAttemptsFor, MAX_TRANSIENT_WAIT_MS, retryDelayMs, servedModelLabel } from "./retry";
 
 vi.mock("server-only", () => ({}));
 
@@ -66,5 +66,14 @@ describe("chính sách thử lại một đoạn", () => {
     expect(chunkModel({ model: "gemini-2.5-flash", params: { fallbackModel: "gemini-2.5-flash" } }, 3, overloaded.message)).toBe(
       "gemini-2.5-flash",
     );
+  });
+
+  it("ghi đúng mô hình thực đã phiên âm (không ghi mô hình chính khi mọi đoạn chạy dự phòng)", () => {
+    expect(servedModelLabel("gemini-3.8-flash", ["gemini-3.8-flash", null, undefined])).toBe("gemini-3.8-flash");
+    expect(servedModelLabel("gemini-3.8-flash", Array(5).fill("gemini-2.5-flash"))).toBe("gemini-2.5-flash");
+    expect(servedModelLabel("gemini-3.8-flash", ["gemini-3.8-flash", "gemini-2.5-flash"])).toBe(
+      "gemini-3.8-flash + gemini-2.5-flash",
+    );
+    expect(servedModelLabel("gemini-3.8-flash", [])).toBe("gemini-3.8-flash");
   });
 });

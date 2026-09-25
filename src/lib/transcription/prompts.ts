@@ -45,9 +45,10 @@ SEGMENTATION & TIMESTAMPS
 - "start" and "end" are timestamps in MM:SS (or H:MM:SS) measured from the beginning of THIS audio file. They must be non-decreasing and must not exceed the file length.
 
 SPEAKER DIARIZATION
-- Label speakers "S1", "S2", ... and keep each label consistent for the whole file, using voice characteristics and conversational context (who asks, who answers, who presents, who chairs).
+- Label speakers "S1", "S2", ... (or as instructed in the prompt for this file) and keep each label consistent for the whole file, using voice characteristics and conversational context (who asks, who answers, who presents, who chairs).
 - Overlapping speech: attribute to the dominant speaker; mark short interjections from others as separate segments when clear.
-- In "speakers", list every label used. Fill "name" ONLY when the person's name is stated or clearly implied (e.g. "mời bác sĩ Quang trình bày" → the next presenter is Bác sĩ Quang; "cảm ơn thầy Hiển"). Use the honorific form used in the meeting (Thầy Hiển, BS. Quang). Fill "role" when evident (Chủ tọa, Người trình bày, Thư ký, Thành viên). Give a short "description" of voice/role to help identify the speaker later.
+- A person invited by name ("mời anh/bác sĩ X") is the one who replies next — never label that reply with the label of someone who already spoke just because the role looks similar.
+- In "speakers", list every label used. Fill "name" ONLY when the person's name is stated or clearly implied (e.g. "mời bác sĩ Quang trình bày" → the next presenter is Bác sĩ Quang; "cảm ơn thầy Hiển"). Use the honorific form used in the meeting (Thầy Hiển, BS. Quang). Never add academic titles or positions (GS., PGS., TS., Trưởng khoa…) that were not spoken. Fill "role" when evident (Chủ tọa, Người trình bày, Thư ký, Thành viên). Give a short "description" of voice/role to help identify the speaker later.
 
 NON-SPEECH
 - Skip silence and background noise. Notable events may appear inline in brackets: [cười], [vỗ tay], [nhiều người nói cùng lúc].
@@ -145,7 +146,13 @@ export function buildChunkPrompt(input: ChunkPromptInput): string {
   }
   if (input.roster && input.roster.length > 0) {
     lines.push("");
-    lines.push("NGƯỜI NÓI ĐÃ XÁC ĐỊNH Ở PHẦN TRƯỚC — dùng lại đúng ID này khi cùng một người nói; người mới dùng ID tiếp theo:");
+    lines.push(
+      "NGƯỜI NÓI ĐÃ XÁC ĐỊNH Ở PHẦN TRƯỚC — chỉ dùng lại ID khi CHẮC CHẮN là cùng người (cùng giọng, cùng tên, " +
+        "hoặc đang tiếp tục phần trình bày). Người được mời đích danh (\"mời anh/bác sĩ X\") thì lời đáp ngay sau đó là của X.",
+    );
+    lines.push(
+      "Giọng mới hoặc không chắc chắn → dùng ID MỚI dạng M1, M2… (tách nhầm còn gộp lại được; gộp nhầm hai người vào một ID thì không sửa được):",
+    );
     for (const s of input.roster) {
       const bits = [s.name && !/^Người nói/.test(s.name) ? s.name : null, s.role, s.description].filter(Boolean);
       lines.push(`- ${s.key}: ${bits.join(" — ") || "chưa rõ tên"}`);
@@ -182,9 +189,12 @@ export function buildGapPrompt(input: ChunkPromptInput & { windowStart: number; 
 export const SPEAKER_NAMING_SYSTEM = `You identify speakers in a Vietnamese hospital meeting transcript that was produced by automatic diarization.
 
 Tasks:
-1. For each speaker key, infer the person's name and role from the conversation (introductions, "mời bác sĩ X", "cảm ơn thầy Y", self-references, who presents the case, who chairs and concludes, who asks questions). Use the honorific form used in the meeting (e.g. "Thầy Hiển", "BS. Quang"). Use the participants list only as supporting evidence, never as the sole reason.
-2. Detect keys that are clearly the SAME person split by diarization (same name used, the same presentation continuing across keys). Only propose a merge with strong evidence.
-3. Be conservative: if the evidence is weak, leave name empty and confidence "low". Never guess a name that never appears in the transcript or the participants list.
+1. For each speaker key, infer the person's name and role from the conversation (introductions, "mời bác sĩ X", "cảm ơn thầy Y", self-references, who presents the case, who chairs and concludes, who asks questions). Use the honorific form used in the meeting (e.g. "Thầy Hiển", "BS. Quang").
+2. Participants list (if provided) may give names with roles (e.g. "Thầy Hiển (chủ tọa)", "BS Quang (trình bày)"). When exactly one speaker clearly performs a listed role in the transcript (the chair opens the session, invites speakers, comments and concludes; the presenter presents the case), you may assign that participant's name with confidence "medium" even if the name itself is never spoken. Otherwise use the list only as supporting evidence.
+3. If a speaker is only ever addressed by a form of address (e.g. "Thầy", "Cô") and no name is available, you may use that form alone as the name (e.g. "Thầy") with confidence "medium".
+4. Role: one short label (Chủ tọa, Người trình bày, Thư ký, Thành viên…). Never add academic titles, degrees or positions (GS., PGS., TS., ThS., Trưởng khoa…) that are not stated in the transcript or the participants list.
+5. Detect keys that are clearly the SAME person split by diarization (same name used, the same presentation continuing across keys). Only propose a merge with strong evidence.
+6. Be conservative: if the evidence is weak, leave name empty and confidence "low". Never guess a name that never appears in the transcript or the participants list.
 
 Return only JSON matching the schema.`;
 

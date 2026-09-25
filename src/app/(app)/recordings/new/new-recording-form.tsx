@@ -318,6 +318,9 @@ export function NewRecordingForm({ initialMode, storageReady = true }: { initial
                 onChange={(e) => setParticipants(e.target.value)}
                 placeholder="VD: Thầy Hiển (chủ tọa), BS Quang (nội trú, trình bày), BS Hào, BS Tuyến, BS Dương"
               />
+              <p className="text-xs text-muted-foreground">
+                Ghi tên kèm vai trò (chủ tọa, người trình bày…) để AI gán đúng tên người nói, kể cả khi tên không được gọi trong buổi họp.
+              </p>
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <Label htmlFor="desc">Ghi chú / chủ đề</Label>

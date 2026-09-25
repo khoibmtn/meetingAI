@@ -85,6 +85,7 @@ Trạng thái tác vụ: `queued → preparing → transcribing → finalizing �
 2. **chunk ×N**
    - Đoạn 0 chạy trước để lập **danh sách người nói**.
    - Các đoạn sau (tối đa 3 đoạn song song) nhận danh sách này kèm tên người tham dự và từ điển thuật ngữ.
+     - Chỉ dùng lại ID khi chắc chắn cùng người; giọng mới hoặc không chắc → ID mới dạng `M1, M2…` riêng cho đoạn đó. Nhờ vậy người mới ở hai đoạn chạy song song không bị gộp nhầm vào một ID. Tách nhầm còn gộp lại được, gộp nhầm hai người thì không.
    - Đầu ra là JSON theo schema: câu `{start, end, speaker, text}` và người nói.
    - JSON bị cắt ngang được sửa rồi gắn cờ.
    - **Thử lại có giãn cách** (`src/lib/transcription/retry.ts`):
@@ -99,7 +100,7 @@ Trạng thái tác vụ: `queued → preparing → transcribing → finalizing �
      - chuyển mốc thời gian về tuyệt đối
      - bỏ câu trùng ở vùng chồng lấn (so khớp văn bản)
      - cắt vòng lặp lặp lại
-     - thống nhất người nói giữa các đoạn theo tên
+     - thống nhất người nói giữa các đoạn theo tên (ID `M…` luôn được cấp khoá toàn cục mới)
    - **Đo độ phủ**: so vùng có tiếng nói (từ khoảng lặng) với vùng đã có chữ.
      - Khoảng hở lớn được **phiên âm bổ sung**, tối đa 10 cửa sổ.
      - Câu bổ sung gắn cờ `gap_fill`.
@@ -107,10 +108,12 @@ Trạng thái tác vụ: `queued → preparing → transcribing → finalizing �
    - **Nhận diện tên người nói**: LLM trả JSON tên, vai trò, độ tin cậy.
      - Chỉ áp dụng tên có độ tin cậy cao hoặc vừa.
      - Chỉ gộp người nói khi độ tin cậy cao.
+     - "Thành phần tham dự" có vai trò (vd "Thầy Hiển (chủ tọa)") mà đúng một người nói thể hiện vai trò đó → được gán tên với độ tin cậy vừa, kể cả khi tên không được gọi. Không tự thêm học hàm, học vị.
    - Lưu transcript:
      - `original_segments` là bản máy gốc, lấy **trước** bước AI hiệu đính thuật ngữ, không bao giờ sửa.
      - `segments` là bản đang dùng, có thể hiệu đính.
      - Kèm `quality`: độ phủ và cảnh báo.
+     - `model` là mô hình **thực** đã phiên âm (vd `gemini-2.5-flash` khi mọi đoạn phải chạy dự phòng), không phải mô hình chính của kết nối. Báo cáo cũng ghi mô hình thực đã trả lời.
 4. **autoreport** (tuỳ chọn): tự tạo văn bản tổng hợp theo template đã chọn khi tải lên.
 
 ### 3.3 Engine Soniox (`stt-async-v5`)

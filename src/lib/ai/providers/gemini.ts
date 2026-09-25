@@ -107,6 +107,7 @@ export async function* geminiStreamText(req: TextRequest): AsyncGenerator<string
       for await (const chunk of stream) {
         const text = chunk.text;
         if (text) {
+          if (!yielded) req.onModel?.(r.conn.model);
           yielded = true;
           yield text;
         }
@@ -146,6 +147,7 @@ export async function geminiGenerateJson<T>(req: JsonRequest): Promise<T> {
       if (isCapacityError(mapped) && i < attempts.length - 1) continue;
       throw mapped;
     }
+    req.onModel?.(r.conn.model);
     return JSON.parse(text) as T;
   }
   throw new AiError(GEMINI_OVERLOADED, "overloaded", true);

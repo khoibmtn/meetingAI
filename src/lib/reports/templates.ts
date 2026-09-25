@@ -22,7 +22,9 @@ Nguyên tắc bắt buộc:
 - Giữ chính xác mọi số liệu lâm sàng, liều thuốc, đơn vị, chỉ số xét nghiệm, tên thuốc, thuật ngữ chuyên môn (Latin/Anh giữ nguyên chuẩn).
 - Khi transcript có chỗ nhận dạng sai rõ ràng (ví dụ tên thuốc bị viết theo âm đọc), sửa về dạng chuẩn nếu chắc chắn; nếu không chắc thì giữ nguyên và đánh dấu [?].
 - Văn phong: tiếng Việt chuẩn mực, trang trọng, súc tích, đúng thuật ngữ chuyên ngành; văn bản hành chính theo thể thức Nghị định 30/2020/NĐ-CP khi template yêu cầu.
-- Gọi người nói bằng tên/chức danh đã được xác định; nếu chưa rõ tên thì dùng nhãn như "Người nói 3" hoặc "Một thành viên".
+- Gọi người nói bằng tên/chức danh đã được xác định. Người chưa rõ tên: gọi "một thành viên" (hoặc theo vai trò thể hiện trong ngữ cảnh, ví dụ "một bác sĩ nội trú"); KHÔNG liệt kê nhãn tự động "Người nói N" như một người tham dự.
+- Không tự thêm học hàm, học vị, chức vụ (GS., PGS., TS., Trưởng khoa…) nếu transcript hoặc thông tin cuộc họp không nêu.
+- Nhãn người nói do máy phân vai tự động nên có thể nhầm. Chỉ khi chính transcript cho thấy RÕ RÀNG lời nói thuộc người khác (ví dụ ngay sau lời mời "mời bác sĩ X", lời đáp lại bị gán cho người đã trình bày xong; hoặc chủ tọa cảm ơn đích danh người vừa phát biểu) thì ghi đúng người theo ngữ cảnh, thêm dấu (*) sau tên và cuối văn bản ghi: "(*) Người nói được hiệu chỉnh theo ngữ cảnh, khác nhãn phân vai tự động." Không đủ rõ thì giữ nguyên nhãn.
 - Định dạng đầu ra: Markdown (tiêu đề #, danh sách, bảng khi cần). Không bọc trong khối code. Không viết lời dẫn hay giải thích ngoài văn bản.`;
 
 export const SYSTEM_TEMPLATES: ReportTemplate[] = [
@@ -32,24 +34,33 @@ export const SYSTEM_TEMPLATES: ReportTemplate[] = [
     description: "Bản ghi đầy đủ nội dung (không tóm tắt), đã làm sạch, chia mục, gắn tên người nói — tương tự NotebookLM.",
     categories: ["giao_ban", "hop", "hoi_nghi", "dao_tao", "khac"],
     minOutputTokens: 32000,
-    prompt: `Soạn "TRANSCRIPT CHI TIẾT" đã biên tập của cuộc họp. Đây KHÔNG phải bản tóm tắt: phải giữ lại toàn bộ nội dung chuyên môn, mọi ý kiến, câu hỏi, câu trả lời, số liệu và chi tiết.
+    prompt: `Soạn "TRANSCRIPT CHI TIẾT" đã biên tập của cuộc họp: văn bản đọc liền mạch, chia theo chủ đề, gắn tên người nói. Đây KHÔNG phải bản tóm tắt: giữ lại toàn bộ nội dung chuyên môn — mọi ý kiến, câu hỏi, câu trả lời, số liệu, liều thuốc, chỉ số và chi tiết lâm sàng.
 
 Cấu trúc:
 # TRANSCRIPT CHI TIẾT [TÊN CUỘC HỌP VIẾT HOA]
-**Chủ đề:** …
+**Chủ đề:** chủ đề chuyên môn thực sự của buổi họp (ca bệnh, chuyên đề được trình bày), không chỉ ghi loại cuộc họp.
 **Ngày:** …
-**Thành phần tham dự:** liệt kê người nói đã xác định kèm vai trò (Chủ tọa, người trình bày…), và "cùng các thành viên khác" nếu có.
+**Thành phần tham dự:** chỉ những người ĐÃ XÁC ĐỊNH TÊN kèm vai trò (Chủ tọa, người trình bày…), sau đó "cùng các thành viên khác" nếu có người chưa rõ tên.
 
 ---
-Sau đó chia thành các phần đánh số La Mã theo diễn biến thực tế (ví dụ: I. MỞ ĐẦU; II. BÁO CÁO CA LÂM SÀNG / NỘI DUNG TRÌNH BÀY; III. NHẬN XÉT CỦA CHỦ TỌA; IV. THẢO LUẬN; V. THẢO LUẬN MỞ RỘNG & BÀI HỌC; VI. KẾT LUẬN). Tên phần phải phản ánh đúng nội dung cuộc họp.
+Chia 4–7 phần đánh số La Mã THEO CHỦ ĐỀ (không theo từng quãng thời gian). Khung gợi ý cho giao ban / sinh hoạt chuyên môn — điều chỉnh theo nội dung thực tế và loại cuộc họp, bỏ phần không có:
+I. MỞ ĐẦU
+II. BÁO CÁO CA LÂM SÀNG / NỘI DUNG TRÌNH BÀY (ghi tên người trình bày)
+III. NHẬN XÉT CỦA CHỦ TỌA
+IV. THẢO LUẬN CHUYÊN MÔN — mỗi người phát biểu một mục con "### 1. Ý kiến của …"; phần chủ tọa bổ sung ngay sau ý kiến đó đặt thành mục con kế tiếp.
+V. THẢO LUẬN MỞ RỘNG & BÀI HỌC LÂM SÀNG — câu hỏi phát sinh, hỏi–đáp, kinh nghiệm thực tế.
+VI. KẾT LUẬN — một phần duy nhất, ở cuối: kết luận, chỉ đạo của chủ tọa, kế hoạch buổi sau.
+Khi chủ tọa hỏi "còn ý kiến gì không?" rồi có người nêu thêm câu hỏi, phần đó thuộc THẢO LUẬN MỞ RỘNG — không tạo phần kết luận ở giữa văn bản. Tên phần phải phản ánh đúng nội dung.
 
-Trong từng phần:
-- Mỗi lượt lời viết dạng: * **Tên người nói (vai trò nếu có)**: nội dung đã làm sạch (bỏ từ đệm, câu lặp, câu vấp) nhưng giữ đủ ý và giọng điệu.
-- Khi có trình bày ca bệnh hoặc dữ liệu có cấu trúc, trình bày thành mục con có tiêu đề ### (ví dụ: Hành chính & Chẩn đoán; Tiền sử & Khám lâm sàng; Cận lâm sàng; Đánh giá nguy cơ & Kế hoạch xử trí) với danh sách gạch đầu dòng, giữ nguyên mọi chỉ số.
-- Ý kiến dài của một người: tách thành các gạch đầu dòng in đậm chủ đề chính (ví dụ: **Thời điểm chuyển tư thế**: …).
-- Phần không liên quan chuyên môn (chỉnh máy chiếu, chào hỏi) ghi ngắn gọn trong ngoặc nghiêng.
+Trình bày:
+- Lượt lời: * **Tên người nói (vai trò nếu có)**: nội dung đã làm sạch — bỏ từ đệm, câu lặp, câu vấp và các câu đáp xác nhận vụn ("Vâng.", "Dạ.", "Khoa à?") — nhưng giữ đủ ý và giọng điệu.
+- Ý kiến dài của một người: tách thành gạch đầu dòng con, mỗi dòng mở đầu bằng chủ đề in đậm (ví dụ **Thời điểm chuyển tư thế**: …).
+- Trình bày ca bệnh hoặc dữ liệu có cấu trúc: mục con ### (Hành chính & Chẩn đoán; Tiền sử & Khám lâm sàng; Cận lâm sàng; Đánh giá nguy cơ; Kế hoạch gây mê & xử trí…) với danh sách gạch đầu dòng, giữ nguyên mọi chỉ số, liều, đơn vị.
+- Phần ngoài chuyên môn (chào hỏi, điểm danh, kiểm tra máy chiếu/chuột/micro, đùa vui, nhận xét cá nhân): gộp thành 1–2 dòng in nghiêng trong ngoặc, ví dụ *(Mọi người kiểm tra thiết bị trình chiếu và kết nối trực tuyến.)* — không chép lại từng câu.
 
-Tuyệt đối không bỏ sót nội dung chuyên môn nào có trong transcript.`,
+Cuối văn bản (chỉ khi có): mục **Cần đối chiếu âm thanh** — tối đa 10 dòng "[mm:ss] cụm từ — lý do" cho các chỗ còn [?] hoặc số liệu, liều thuốc nghi nhận dạng sai, để người đọc nghe lại.
+
+Tuyệt đối không bỏ sót nội dung chuyên môn nào có trong transcript, và không thêm kiến thức không được nói trong buổi họp.`,
   },
   {
     key: "sys:giao-ban",

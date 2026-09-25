@@ -5,7 +5,9 @@ import { streamText, type ConnectionConfig } from "@/lib/ai";
 import { markAuthFailure, requireConnection } from "@/lib/ai/connections";
 import { getSetting } from "@/lib/settings";
 import { formatTranscriptForLLM, speakerDisplay } from "@/lib/transcription/format";
-import { CATEGORY_LABELS } from "@/lib/transcription/prompts";
+import { loadGlossaryForRecording } from "@/lib/transcription/glossary";
+import { CATEGORY_LABELS, formatGlossary } from "@/lib/transcription/prompts";
+import { hasIdentifiedName } from "@/lib/transcription/speakers";
 import { formatDuration } from "@/lib/transcription/timecode";
 import type { Segment, Speaker } from "@/lib/transcription/types";
 import { findSystemTemplate, REPORT_SYSTEM_PROMPT, type ReportTemplate } from "./templates";
@@ -46,6 +48,8 @@ export async function resolveTemplate(key: string, userId: string): Promise<Repo
 }
 
 export function meetingInfoBlock(recording: Recording, speakers: Speaker[]): string {
+  const named = speakers.filter((s) => hasIdentifiedName(s));
+  const unnamed = speakers.filter((s) => !hasIdentifiedName(s));
   return [
     `Tên cuộc họp: ${recording.title}`,
     `Loại: ${CATEGORY_LABELS[recording.category] ?? recording.category}`,
@@ -53,7 +57,12 @@ export function meetingInfoBlock(recording: Recording, speakers: Speaker[]): str
     recording.location ? `Địa điểm: ${recording.location}` : null,
     recording.duration_sec ? `Thời lượng: ${formatDuration(Number(recording.duration_sec))}` : null,
     recording.participants ? `Thành phần dự kiến: ${recording.participants}` : null,
-    speakers.length ? `Người nói đã xác định: ${speakers.map((s) => speakerDisplay(s.key, speakers)).join("; ")}` : null,
+    named.length ? `Người nói đã xác định tên: ${named.map((s) => speakerDisplay(s.key, speakers)).join("; ")}` : null,
+    unnamed.length
+      ? `Người nói chưa rõ tên (nhãn phân vai tự động, không phải người tham dự cụ thể): ${unnamed
+          .map((s) => speakerDisplay(s.key, speakers, false))
+          .join(", ")}`
+      : null,
     recording.description ? `Ghi chú: ${recording.description}` : null,
   ]
     .filter(Boolean)
@@ -76,7 +85,10 @@ export async function buildReportRequest(recordingId: string, template: ReportTe
   const segments = (transcript?.segments as unknown as Segment[]) ?? [];
   if (!segments.length) throw new Error("Bản ghi chưa có transcript");
   const speakers = (transcript?.speakers as unknown as Speaker[]) ?? [];
-  const org = await getOrganizationInfo();
+  const [org, glossary] = await Promise.all([
+    getOrganizationInfo(),
+    loadGlossaryForRecording(recordingId, [recording.owner_id]),
+  ]);
 
   // Phần ổn định (hướng dẫn + thông tin + transcript) đặt trong system để tận dụng prompt caching
   const system = [
@@ -88,6 +100,9 @@ export async function buildReportRequest(recordingId: string, template: ReportTe
     "THÔNG TIN CUỘC HỌP:",
     meetingInfoBlock(recording, speakers),
     "",
+    "TỪ ĐIỂN THUẬT NGỮ / TÊN RIÊNG — chính tả chuẩn để sửa từ bị nhận dạng sai; không dùng để thêm nội dung:",
+    formatGlossary(glossary, 200),
+    "",
     "TRANSCRIPT ([mm:ss] Người nói: lời nói):",
     formatTranscriptForLLM(segments, speakers),
   ].join("\n");
@@ -95,16 +110,26 @@ export async function buildReportRequest(recordingId: string, template: ReportTe
   return { recording, system, user, minOutputTokens: template.minOutputTokens ?? 8000 };
 }
 
-/** Sinh báo cáo dạng stream (dùng cho giao diện). */
+/**
+ * Sinh báo cáo dạng stream (dùng cho giao diện). `onModel` báo mô hình thực sự trả lời
+ * (mô hình dự phòng khi mô hình chính quá tải) để ghi đúng vào báo cáo.
+ */
 export async function* streamReport(
   recordingId: string,
   template: ReportTemplate,
   conn: ConnectionConfig,
-  signal?: AbortSignal,
+  opts: { signal?: AbortSignal; onModel?: (model: string) => void } = {},
 ): AsyncGenerator<string> {
   const { system, user, minOutputTokens } = await buildReportRequest(recordingId, template);
   try {
-    yield* streamText({ conn, system, messages: [{ role: "user", content: user }], minOutputTokens, signal });
+    yield* streamText({
+      conn,
+      system,
+      messages: [{ role: "user", content: user }],
+      minOutputTokens,
+      signal: opts.signal,
+      onModel: opts.onModel,
+    });
   } catch (err) {
     await markAuthFailure(conn, err);
     throw err;
@@ -137,15 +162,19 @@ export async function generateReportToDb(params: {
   if (error || !report) throw new Error(error?.message ?? "Không tạo được báo cáo");
   let content = "";
   let lastSave = Date.now();
+  let servedModel = conn.model;
   try {
-    for await (const piece of streamReport(params.recordingId, template, conn)) {
+    for await (const piece of streamReport(params.recordingId, template, conn, { onModel: (m) => (servedModel = m) })) {
       content += piece;
       if (Date.now() - lastSave > 5000) {
         lastSave = Date.now();
         await admin.from("reports").update({ content }).eq("id", report.id);
       }
     }
-    await admin.from("reports").update({ content: cleanupMarkdown(content), status: "ready" }).eq("id", report.id);
+    await admin
+      .from("reports")
+      .update({ content: cleanupMarkdown(content), status: "ready", model: servedModel })
+      .eq("id", report.id);
   } catch (err) {
     await admin
       .from("reports")

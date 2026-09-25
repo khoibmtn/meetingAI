@@ -120,9 +120,14 @@ export function reconcileSpeakers(rosters: ChunkRoster[]): {
   return { mapping, speakers };
 }
 
+/** Người nói đã được xác định tên (không phải nhãn phân vai tự động như "Người nói 3"). */
+export function hasIdentifiedName(s: Pick<Speaker, "key" | "name">): boolean {
+  return isMeaningfulName(s.name) && s.name.trim() !== defaultSpeakerName(s.key);
+}
+
 export function defaultSpeakerName(key: string): string {
   const m = key.match(/^S(\d+)$/);
-  return m ? `Người nói ${m[1]}` : key;
+  return m ? `Người nói ${m[1]}` : `Người nói ${key}`;
 }
 
 function speakerOrder(key: string): number {

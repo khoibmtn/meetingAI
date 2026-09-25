@@ -85,9 +85,11 @@ export async function POST(request: NextRequest) {
       { role: "user" as const, content: message },
     ];
 
+    // Mô hình thực sự trả lời (mô hình dự phòng nếu mô hình chính quá tải)
+    let servedModel = conn.model;
     async function* run() {
       try {
-        yield* streamText({ conn, system, messages, minOutputTokens: 8000 });
+        yield* streamText({ conn, system, messages, minOutputTokens: 8000, onModel: (m) => (servedModel = m) });
       } catch (err) {
         await markAuthFailure(conn, err);
         throw err;
@@ -106,7 +108,7 @@ export async function POST(request: NextRequest) {
           role: "assistant",
           content: text,
           provider: conn.provider,
-          model: conn.model,
+          model: servedModel,
         });
         await admin.from("ai_conversations").update({ updated_at: new Date().toISOString() }).eq("id", conversationId!);
       },

@@ -31,7 +31,15 @@ import {
 import { generateJson, type ConnectionConfig } from "@/lib/ai";
 import { getConnectionConfig, markAuthFailure, requireConnection, resolveConnection } from "@/lib/ai/connections";
 import { AiError, fallbackModelFor, GEMINI_OVERLOADED, GEMINI_RATE_LIMITED, isCapacityError } from "@/lib/ai/types";
-import { chunkModel, FALLBACK_STICKY_MS, isTransientError, maxAttemptsFor, MAX_RETRY_WAIT_MS, retryDelayMs } from "./retry";
+import {
+  chunkModel,
+  FALLBACK_STICKY_MS,
+  isTransientError,
+  maxAttemptsFor,
+  MAX_RETRY_WAIT_MS,
+  retryDelayMs,
+  servedModelLabel,
+} from "./retry";
 import { serverEnv } from "@/lib/env";
 import { sleep, stripDiacritics } from "@/lib/utils";
 import { planChunks } from "./chunking";
@@ -717,6 +725,8 @@ async function stepFinalize(admin: Admin, jobId: string) {
   let repetitionsTrimmed = 0;
   let gapFillsAttempted = 0;
   let gapFillsRecovered = 0;
+  // Mô hình THỰC đã phiên âm (khác job.model khi phải chạy mô hình dự phòng)
+  let servedModel = job.model;
   const cleanup: (() => Promise<void>)[] = [];
 
   if (opts.engine === "soniox") {
@@ -761,6 +771,7 @@ async function stepFinalize(admin: Admin, jobId: string) {
       const models = [...new Set(viaFallback.map((c) => (c.result as { model?: string }).model))].join(", ");
       warnings.push(`Đoạn ${viaFallback.map((c) => c.idx + 1).join(", ")} dùng mô hình dự phòng ${models} vì ${job.model} quá tải.`);
     }
+    if (job.model) servedModel = servedModelLabel(job.model, main.map((c) => (c.result as { model?: string } | null)?.model));
     const reuploadedChunks = main.filter((c) => (c.result as { reuploaded?: boolean } | null)?.reuploaded);
     if (reuploadedChunks.length) {
       warnings.push(`Tệp âm thanh đoạn ${reuploadedChunks.map((c) => c.idx + 1).join(", ")} trên Gemini không còn — đã tải lại từ tệp gốc.`);
@@ -777,6 +788,7 @@ async function stepFinalize(admin: Admin, jobId: string) {
         await patchJob(admin, jobId, { stage: `Đang quét ${windows.length} khoảng nghi bỏ sót`, progress: 90 });
         const conn = await transcriptionConn(job);
         const ai = createGemini(conn);
+        const globalKeys = new Set(speakers.map((s) => s.key));
         const results = await mapLimit(windows, 3, async (w) => {
           if (Date.now() > deadline - 60_000) return null;
           gapFillsAttempted++;
@@ -802,7 +814,9 @@ async function stepFinalize(admin: Admin, jobId: string) {
               }
               throw err;
             });
-            const drafts = toAbsoluteSegments(w.plan, result, mapFor(w.plan.idx)).filter(
+            // Lượt quét nhận danh sách người nói TOÀN CỤC → giữ nguyên khoá toàn cục; khoá khác ánh xạ theo đoạn
+            const mapGap = (local: string) => (globalKeys.has(local) ? local : mapFor(w.plan.idx)(local));
+            const drafts = toAbsoluteSegments(w.plan, result, mapGap).filter(
               (d) => parseTimecode(d.start) >= 0,
             );
             return { gap: w.gap, drafts };
@@ -913,7 +927,7 @@ async function stepFinalize(admin: Admin, jobId: string) {
     original_segments: machineSegments as unknown as Json,
     speakers: speakers as unknown as Json,
     engine: opts.engine,
-    model: job.model,
+    model: servedModel,
     quality: quality as unknown as Json,
     search_text: searchText,
     version: (existing?.version ?? 0) + 1,

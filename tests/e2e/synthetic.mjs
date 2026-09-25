@@ -82,7 +82,9 @@ values ('30000000-0000-0000-0000-0000000000e1', 'org', 'Gemini giả lập', 'ge
        -- Địa chỉ sai: bước chuẩn bị thất bại (kiểm tra tệp tạm được giữ để "Thử lại")
        ('30000000-0000-0000-0000-0000000000e4', 'org', 'Gemini hỏng', 'gemini', 'http://127.0.0.1:9', '${encrypt("mock-gemini-key")}', '…-key', 'gemini-3.8-flash', '{}', 'ok', '00000000-0000-0000-0000-0000000000e0'),
        -- Mô hình luôn quá tải (503): kiểm tra "Kiểm tra kết nối" không khoá kết nối vì lỗi tạm thời
-       ('30000000-0000-0000-0000-0000000000e5', 'org', 'Gemini quá tải', 'gemini', '${MOCK}', '${encrypt("mock-gemini-key")}', '…-key', 'gemini-9-overloaded', '{}', 'ok', '00000000-0000-0000-0000-0000000000e0');
+       ('30000000-0000-0000-0000-0000000000e5', 'org', 'Gemini quá tải', 'gemini', '${MOCK}', '${encrypt("mock-gemini-key")}', '…-key', 'gemini-9-overloaded', '{}', 'ok', '00000000-0000-0000-0000-0000000000e0'),
+       -- Mô hình chính luôn quá tải, có dự phòng: báo cáo phải ghi đúng mô hình dự phòng đã trả lời
+       ('30000000-0000-0000-0000-0000000000e6', 'org', 'Gemini quá tải có dự phòng', 'gemini', '${MOCK}', '${encrypt("mock-gemini-key")}', '…-key', 'gemini-9-overloaded', '{"fallbackModel": "gemini-2.5-flash"}', 'ok', '00000000-0000-0000-0000-0000000000e0');
 
 insert into public.ai_assignments (scope, usage, connection_id)
 select 'org', u, '30000000-0000-0000-0000-0000000000e1'
