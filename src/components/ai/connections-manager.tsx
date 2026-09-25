@@ -11,7 +11,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiJson } from "@/lib/client/api";
-import { EFFORT_OPTIONS, PROVIDERS, USAGES, VERBOSITY_OPTIONS, usageAccepts, type ConnectionSummary, type Usage } from "@/lib/ai/catalog";
+import {
+  EFFORT_OPTIONS,
+  PROVIDERS,
+  USAGES,
+  VERBOSITY_OPTIONS,
+  usageAccepts,
+  usageRejectReason,
+  type ConnectionSummary,
+  type Usage,
+} from "@/lib/ai/catalog";
 import { ConnectionEditor } from "./connection-editor";
 import { useConnections } from "./use-connections";
 
@@ -36,12 +45,20 @@ export function ConnectionsManager({ scope }: { scope: "org" | "user" }) {
   async function retest(c: ConnectionSummary) {
     setTestingId(c.id);
     try {
-      const r = await apiJson<{ ok: boolean; latencyMs: number; error?: string }>("/api/ai/connections/test", {
+      const r = await apiJson<{
+        ok: boolean;
+        latencyMs: number;
+        error?: string;
+        fallback?: { model: string; ok: boolean; error?: string };
+      }>("/api/ai/connections/test", {
         method: "POST",
         json: { id: c.id, provider: c.provider, baseUrl: c.baseUrl, model: c.model, params: c.params },
       });
       if (r.ok) toast.success(`${c.name}: hoạt động (${r.latencyMs} ms)`);
       else toast.error(`${c.name}: ${r.error}`);
+      if (r.fallback && !r.fallback.ok) {
+        toast.warning(`${c.name}: mô hình dự phòng ${r.fallback.model} không dùng được — ${r.fallback.error}`, { duration: 12_000 });
+      }
       reload();
     } catch (e) {
       toast.error((e as Error).message);
@@ -121,7 +138,15 @@ export function ConnectionsManager({ scope }: { scope: "org" | "user" }) {
                     {c.params.effort ? <Badge variant="muted">Suy luận: {EFFORT_OPTIONS.find((o) => o.value === c.params.effort)?.label.split(" — ")[0]}</Badge> : null}
                     {c.params.verbosity ? <Badge variant="muted">{VERBOSITY_OPTIONS.find((o) => o.value === c.params.verbosity)?.label}</Badge> : null}
                     {c.params.temperature != null ? <Badge variant="muted">T={c.params.temperature}</Badge> : null}
-                    {c.params.fallbackModel ? <Badge variant="muted">Dự phòng: {c.params.fallbackModel}</Badge> : null}
+                    {c.params.fallbackModel ? (
+                      c.params.fallbackModel === c.model ? (
+                        <Badge variant="warning" title="Mô hình dự phòng phải khác mô hình chính — sửa kết nối để chọn mô hình khác">
+                          Dự phòng trùng mô hình chính — không có tác dụng
+                        </Badge>
+                      ) : (
+                        <Badge variant="muted">Dự phòng: {c.params.fallbackModel}</Badge>
+                      )
+                    ) : null}
                   </div>
                   {c.lastError ? (
                     <p className={`line-clamp-2 text-xs ${c.status === "error" ? "text-destructive" : "text-muted-foreground"}`}>
@@ -167,6 +192,10 @@ export function ConnectionsManager({ scope }: { scope: "org" | "user" }) {
           <div className="divide-y rounded-lg border">
             {USAGES.map((u) => {
               const options = assignable(u.id);
+              // Kết nối không dùng được cho vị trí này: vẫn liệt kê (mờ) kèm lý do để khỏi thắc mắc vì sao không chọn được
+              const unusable = state.connections.filter(
+                (c) => !options.includes(c) && (scope === "org" ? c.scope === "org" : true),
+              );
               const current = scope === "org" ? state.assignments.org[u.id] : state.assignments.mine[u.id];
               const orgCurrent = state.connections.find((c) => c.id === state.assignments.org[u.id]);
               return (
@@ -191,6 +220,16 @@ export function ConnectionsManager({ scope }: { scope: "org" | "user" }) {
                       {options.map((c) => (
                         <SelectItem key={c.id} value={c.id}>
                           {c.name} · <span className="font-mono text-xs">{c.model}</span>
+                        </SelectItem>
+                      ))}
+                      {unusable.map((c) => (
+                        <SelectItem key={c.id} value={c.id} disabled>
+                          <span className="min-w-0 truncate">
+                            {c.name}{" "}
+                            <span className="text-xs">
+                              — {usageRejectReason(u.id, c.provider) ?? "chưa kiểm tra kết nối thành công"}
+                            </span>
+                          </span>
                         </SelectItem>
                       ))}
                     </SelectContent>

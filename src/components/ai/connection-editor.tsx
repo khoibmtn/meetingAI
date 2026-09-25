@@ -2,10 +2,11 @@
 
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
-import { CheckCircle2Icon, DownloadCloudIcon, EyeIcon, EyeOffIcon, Loader2Icon, PlugZapIcon, XCircleIcon } from "lucide-react";
+import { CheckCircle2Icon, DownloadCloudIcon, Loader2Icon, PlugZapIcon, XCircleIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { NO_AUTOFILL, SecretInput } from "@/components/ui/secret-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
@@ -31,6 +32,7 @@ interface TestResult {
   latencyMs: number;
   sample?: string;
   error?: string;
+  fallback?: { model: string; ok: boolean; error?: string; transient?: boolean };
 }
 
 interface ModelItem {
@@ -60,7 +62,6 @@ export function ConnectionEditor({
   const [name, setName] = useState(existing?.name ?? "");
   const [baseUrl, setBaseUrl] = useState(existing?.baseUrl ?? "");
   const [apiKey, setApiKey] = useState("");
-  const [showKey, setShowKey] = useState(false);
   const [model, setModel] = useState(existing?.model ?? PROVIDERS[existing?.provider ?? "gemini"].suggestedModels[0] ?? "");
   const [params, setParams] = useState<ModelParams>(existing?.params ?? {});
   const [extraText, setExtraText] = useState(existing?.params?.extra ? JSON.stringify(existing.params.extra, null, 2) : "");
@@ -208,11 +209,11 @@ export function ConnectionEditor({
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label>Tên kết nối</Label>
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={`${info.label} – ${model || "mô hình"}`} />
+              <Input {...NO_AUTOFILL} value={name} onChange={(e) => setName(e.target.value)} placeholder={`${info.label} – ${model || "mô hình"}`} />
             </div>
             <div className="space-y-1.5">
               <Label>Base URL {provider === "openai_compatible" ? "*" : "(tuỳ chọn)"}</Label>
-              <Input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={info.defaultBaseUrl} />
+              <Input {...NO_AUTOFILL} inputMode="url" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder={info.defaultBaseUrl} />
             </div>
             <div className="space-y-1.5 sm:col-span-2">
               <Label className="flex items-center justify-between">
@@ -223,18 +224,11 @@ export function ConnectionEditor({
                   </a>
                 ) : null}
               </Label>
-              <div className="flex gap-2">
-                <Input
-                  type={showKey ? "text" : "password"}
-                  autoComplete="off"
-                  value={apiKey}
-                  onChange={(e) => setApiKey(e.target.value)}
-                  placeholder={existing?.keyHint ? `Giữ nguyên khoá hiện tại (${existing.keyHint})` : info.keyPlaceholder}
-                />
-                <Button type="button" variant="outline" size="icon" onClick={() => setShowKey((s) => !s)} aria-label="Hiện/ẩn khoá">
-                  {showKey ? <EyeOffIcon /> : <EyeIcon />}
-                </Button>
-              </div>
+              <SecretInput
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                placeholder={existing?.keyHint ? `Giữ nguyên khoá hiện tại (${existing.keyHint})` : info.keyPlaceholder}
+              />
             </div>
           </div>
 
@@ -246,10 +240,10 @@ export function ConnectionEditor({
                 {loadingModels ? <Loader2Icon className="animate-spin" /> : <DownloadCloudIcon />} Tải danh sách mô hình
               </Button>
             </div>
-            <Input value={model} onChange={(e) => setModel(e.target.value)} placeholder="Nhập ID mô hình, vd gemini-3.8-flash" className="font-mono text-sm" />
+            <Input {...NO_AUTOFILL} value={model} onChange={(e) => setModel(e.target.value)} placeholder="Nhập ID mô hình, vd gemini-3.8-flash" className="font-mono text-sm" />
             {models ? (
               <div className="space-y-1.5">
-                <Input value={modelFilter} onChange={(e) => setModelFilter(e.target.value)} placeholder={`Lọc ${models.length} mô hình…`} className="h-8 text-sm" />
+                <Input {...NO_AUTOFILL} value={modelFilter} onChange={(e) => setModelFilter(e.target.value)} placeholder={`Lọc ${models.length} mô hình…`} className="h-8 text-sm" />
                 <div className="max-h-44 overflow-y-auto rounded-md border">
                   {filteredModels.map((m) => (
                     <button
@@ -281,11 +275,12 @@ export function ConnectionEditor({
                   Mô hình dự phòng khi quá tải (tuỳ chọn)
                 </Label>
                 <Input
+                  {...NO_AUTOFILL}
                   id="fallback-model"
                   list="fallback-model-options"
                   value={params.fallbackModel ?? ""}
                   onChange={(e) => setP("fallbackModel", e.target.value.trim() || null)}
-                  placeholder="vd gemini-2.5-flash"
+                  placeholder="Mô hình khác mô hình chính, chọn trong danh sách"
                   className="h-8 font-mono text-sm"
                 />
                 <datalist id="fallback-model-options">
@@ -295,6 +290,11 @@ export function ConnectionEditor({
                       <option key={id} value={id} />
                     ))}
                 </datalist>
+                {params.fallbackModel && params.fallbackModel === model.trim() ? (
+                  <p className="text-xs font-medium text-destructive">
+                    Trùng mô hình chính nên không có tác dụng — hãy chọn mô hình khác trong danh sách (bấm “Tải danh sách mô hình”).
+                  </p>
+                ) : null}
                 <p className="text-xs text-muted-foreground">
                   Khi mô hình chính báo quá tải (503 “high demand”) nhiều lần, hệ thống tự chuyển sang mô hình này để phiên âm và soạn văn bản không bị gián đoạn.
                 </p>
@@ -371,6 +371,7 @@ export function ConnectionEditor({
                 <div className="space-y-1.5">
                   <Label className="text-xs">Số token đầu ra tối đa</Label>
                   <Input
+                    {...NO_AUTOFILL}
                     type="number"
                     min={256}
                     step={256}
@@ -407,6 +408,13 @@ export function ConnectionEditor({
                   {result.ok ? `Kết nối thành công (${result.latencyMs} ms)` : "Kết nối thất bại"}
                 </div>
                 <div className="text-xs break-words text-muted-foreground">{result.ok ? `Phản hồi: ${result.sample}` : result.error}</div>
+                {result.fallback ? (
+                  <div className={cn("mt-1 text-xs break-words", result.fallback.ok ? "text-muted-foreground" : "font-medium text-destructive")}>
+                    {result.fallback.ok
+                      ? `Mô hình dự phòng ${result.fallback.model}: dùng được${result.fallback.transient ? " (lúc này đang quá tải)" : ""}.`
+                      : `Mô hình dự phòng ${result.fallback.model} KHÔNG dùng được: ${result.fallback.error}`}
+                  </div>
+                ) : null}
               </div>
             </div>
           ) : null}

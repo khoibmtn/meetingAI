@@ -123,7 +123,7 @@ Trạng thái tác vụ: `queued → preparing → transcribing → finalizing �
      - `original_segments` là bản máy gốc, lấy **trước** bước AI hiệu đính thuật ngữ, không bao giờ sửa.
      - `segments` là bản đang dùng, có thể hiệu đính.
      - Kèm `quality`: độ phủ và cảnh báo.
-     - `model` là mô hình **thực** đã phiên âm (vd `gemini-2.5-flash` khi mọi đoạn phải chạy dự phòng), không phải mô hình chính của kết nối. Báo cáo cũng ghi mô hình thực đã trả lời.
+     - `model` là mô hình **thực** đã phiên âm (tên mô hình dự phòng khi mọi đoạn phải chạy dự phòng), không phải mô hình chính của kết nối. Báo cáo cũng ghi mô hình thực đã trả lời.
 4. **autoreport** (tuỳ chọn): tự tạo văn bản tổng hợp theo template đã chọn khi tải lên.
 
 ### 3.3 Engine Soniox (`stt-async-v5`)

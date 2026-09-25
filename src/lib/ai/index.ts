@@ -1,6 +1,6 @@
 import "server-only";
 import { PROVIDERS, type ProviderKind } from "./catalog";
-import { AiError, type ConnectionConfig, type JsonRequest, type TextRequest } from "./types";
+import { AiError, fallbackModelFor, type ConnectionConfig, type JsonRequest, type TextRequest } from "./types";
 import { geminiGenerateJson, geminiListModels, geminiStreamText } from "./providers/gemini";
 import { openaiGenerateJson, openaiListModels, openaiStreamText } from "./providers/openai";
 import { anthropicGenerateJson, anthropicListModels, anthropicStreamText } from "./providers/anthropic";
@@ -118,10 +118,37 @@ export interface TestResult {
   error?: string;
   /** Lỗi nhất thời (quá tải, giới hạn tần suất, mạng) — không phải do khoá/mô hình sai. */
   transient?: boolean;
+  /** Kết quả thử mô hình dự phòng (Gemini). ok = dùng được (kể cả đang quá tải tạm thời). */
+  fallback?: { model: string; ok: boolean; error?: string; transient?: boolean };
+}
+
+const PING = {
+  system: "Bạn là trợ lý kiểm tra kết nối. Chỉ trả lời đúng yêu cầu.",
+  messages: [{ role: "user" as const, content: "Trả lời đúng một từ: OK" }],
+  minOutputTokens: 1024,
+};
+
+/** Thử riêng mô hình dự phòng: mô hình bị Google ngừng / gõ sai tên thì báo ngay, đừng đợi lúc quá tải mới lộ ra. */
+async function testFallbackModel(conn: ConnectionConfig): Promise<TestResult["fallback"]> {
+  const model = conn.provider === "gemini" ? fallbackModelFor(conn) : null;
+  if (!model) return undefined;
+  try {
+    await generateText({ ...PING, conn: { ...conn, model, params: { ...conn.params, fallbackModel: null } }, signal: AbortSignal.timeout(60_000) });
+    return { model, ok: true };
+  } catch (err) {
+    const transient = err instanceof AiError ? err.retryable && err.kind !== "auth" : true;
+    return { model, ok: transient, transient, error: err instanceof Error ? err.message : String(err) };
+  }
 }
 
 /** Kiểm tra kết nối bằng một yêu cầu nhỏ, đo độ trễ. */
+/** Kiểm tra kết nối: mô hình chính và (song song) mô hình dự phòng nếu có. */
 export async function testConnection(conn: ConnectionConfig): Promise<TestResult> {
+  const [primary, fallback] = await Promise.all([testPrimary(conn), testFallbackModel(conn)]);
+  return fallback ? { ...primary, fallback } : primary;
+}
+
+async function testPrimary(conn: ConnectionConfig): Promise<TestResult> {
   const started = Date.now();
   try {
     if (conn.provider === "soniox") {
@@ -140,13 +167,7 @@ export async function testConnection(conn: ConnectionConfig): Promise<TestResult
       }
       return { ok: true, latencyMs: Date.now() - started, sample: "Kết nối Soniox hợp lệ" };
     }
-    const text = await generateText({
-      conn,
-      system: "Bạn là trợ lý kiểm tra kết nối. Chỉ trả lời đúng yêu cầu.",
-      messages: [{ role: "user", content: "Trả lời đúng một từ: OK" }],
-      minOutputTokens: 1024,
-      signal: AbortSignal.timeout(60_000),
-    });
+    const text = await generateText({ ...PING, conn, signal: AbortSignal.timeout(60_000) });
     if (!text.trim()) throw new AiError("Mô hình trả về rỗng — kiểm tra lại tên mô hình/tham số", "bad_request");
     return { ok: true, latencyMs: Date.now() - started, sample: text.trim().slice(0, 200) };
   } catch (err) {

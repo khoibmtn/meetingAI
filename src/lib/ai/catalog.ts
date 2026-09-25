@@ -221,6 +221,14 @@ export function usageAccepts(usage: Usage, provider: ProviderKind): boolean {
   return USAGES.find((u) => u.id === usage)?.accepts.includes(provider) ?? false;
 }
 
+/** Lý do một nhà cung cấp không dùng được cho vị trí này (hiển thị mờ trong danh sách chọn); null = dùng được. */
+export function usageRejectReason(usage: Usage, provider: ProviderKind): string | null {
+  if (usageAccepts(usage, provider)) return null;
+  if (usage === "transcription") return "chỉ xử lý văn bản, không nghe được âm thanh";
+  if (PROVIDERS[provider].kind === "asr") return "chỉ dùng để phiên âm";
+  return "không hỗ trợ vị trí này";
+}
+
 export function verbosityInstruction(v?: Verbosity | null): string {
   if (v === "low") return "Trình bày ngắn gọn, súc tích.";
   if (v === "high") return "Trình bày chi tiết, đầy đủ.";

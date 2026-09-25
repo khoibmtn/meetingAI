@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       baseUrl: body.baseUrl,
       apiKey,
       model: body.model,
-      params: sanitizeParams(body.params),
+      params: sanitizeParams(body.params, body.model),
     });
     if (savedId) await recordConnectionStatus(savedId, result);
     return Response.json(result);

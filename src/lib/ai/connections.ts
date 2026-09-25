@@ -197,7 +197,8 @@ export interface ConnectionInput {
   params: ModelParams;
 }
 
-export function sanitizeParams(p: ModelParams | undefined): ModelParams {
+/** Chuẩn hoá tham số; bỏ mô hình dự phòng nếu trùng mô hình chính (không có tác dụng). */
+export function sanitizeParams(p: ModelParams | undefined, model?: string): ModelParams {
   const out: ModelParams = {};
   if (!p) return out;
   const num = (v: unknown, min: number, max: number) =>
@@ -208,7 +209,8 @@ export function sanitizeParams(p: ModelParams | undefined): ModelParams {
   if (p.effort) out.effort = ["minimal", "low", "medium", "high", "xhigh", "max"].includes(p.effort) ? p.effort : null;
   if (p.verbosity) out.verbosity = ["low", "medium", "high"].includes(p.verbosity) ? p.verbosity : null;
   if (p.extra && typeof p.extra === "object" && !Array.isArray(p.extra)) out.extra = p.extra;
-  if (typeof p.fallbackModel === "string" && /^[\w.:/-]{1,100}$/.test(p.fallbackModel.trim())) out.fallbackModel = p.fallbackModel.trim();
+  const fallback = typeof p.fallbackModel === "string" ? p.fallbackModel.trim() : "";
+  if (/^[\w.:/-]{1,100}$/.test(fallback) && fallback !== model?.trim()) out.fallbackModel = fallback;
   return out;
 }
 
@@ -220,7 +222,7 @@ export async function saveConnection(input: ConnectionInput, actorId: string): P
     provider: input.provider,
     base_url: input.baseUrl?.trim() || null,
     model: input.model.trim(),
-    params: sanitizeParams(input.params) as unknown as Json,
+    params: sanitizeParams(input.params, input.model) as unknown as Json,
     status: "untested",
     last_error: null,
   };

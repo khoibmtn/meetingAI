@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { PROVIDERS, type Usage } from "@/lib/ai/catalog";
+import { PROVIDERS, usageRejectReason, type Usage } from "@/lib/ai/catalog";
 import { cn } from "@/lib/utils";
 import { validConnectionsFor, type ConnectionsState } from "./use-connections";
 
@@ -23,6 +23,7 @@ export function ConnectionSelect({
   size?: "sm" | "default";
 }) {
   const options = validConnectionsFor(state, usage);
+  const unusable = (state?.connections ?? []).filter((c) => !options.includes(c));
   if (state && options.length === 0) {
     return (
       <div className={cn("rounded-md border border-dashed px-3 py-2 text-xs text-muted-foreground", className)}>
@@ -46,6 +47,14 @@ export function ConnectionSelect({
               <span className="ml-1 text-xs text-muted-foreground">
                 · {PROVIDERS[c.provider].label.split(" ")[0]} · {c.model}
               </span>
+            </span>
+          </SelectItem>
+        ))}
+        {unusable.map((c) => (
+          <SelectItem key={c.id} value={c.id} disabled>
+            <span className="min-w-0 truncate">
+              {c.name}{" "}
+              <span className="text-xs">— {usageRejectReason(usage, c.provider) ?? "chưa kiểm tra kết nối thành công"}</span>
             </span>
           </SelectItem>
         ))}

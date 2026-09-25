@@ -57,7 +57,7 @@ Có thể thêm template tuỳ chỉnh theo cá nhân, nhóm hoặc đơn vị. 
 - Mỗi kết nối:
   - tự tải danh sách mô hình mới nhất, hoặc nhập tay tên mô hình và base URL
   - chỉnh tham số: mức suy luận, độ chi tiết, temperature, top-p, max tokens, JSON nâng cao
-  - Gemini: khai báo **mô hình dự phòng khi quá tải** (vd `gemini-2.5-flash`) — mô hình mới thường hay báo 503 "high demand"
+  - Gemini: khai báo **mô hình dự phòng khi quá tải** (một mô hình khác mô hình chính, chọn trong "Tải danh sách mô hình"; nút "Kiểm tra" thử cả mô hình dự phòng) — mô hình mới thường hay báo 503 "high demand"
   - có nút **kiểm tra kết nối** và **lưu**
 - **Mỗi vị trí dùng AI chọn mô hình riêng** (phiên âm, nhận diện tên, hiệu đính, báo cáo, hỏi đáp), trong số các kết nối đã kiểm tra thành công.
 

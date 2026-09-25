@@ -28,6 +28,17 @@ describe("lỗi Gemini", () => {
     const limited = mapGeminiError(new ApiError({ message: "Resource has been exhausted", status: 429 }));
     expect([limited.kind, limited.message.startsWith(GEMINI_RATE_LIMITED)]).toEqual(["rate_limit", true]);
   });
+
+  it("404 mô hình bị Google ngừng cho khoá mới → báo rõ tên mô hình, không thử lại", () => {
+    const gone = mapGeminiError(
+      new ApiError({
+        message: "This model models/gemini-2.5-flash is no longer available to new users. Please update your code to use a newer model.",
+        status: 404,
+      }),
+    );
+    expect([gone.kind, gone.retryable]).toEqual(["bad_request", false]);
+    expect(gone.message).toContain("gemini-2.5-flash không còn được Google cung cấp");
+  });
 });
 
 describe("chính sách thử lại một đoạn", () => {

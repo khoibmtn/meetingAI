@@ -76,6 +76,13 @@ export function mapGeminiError(err: unknown): AiError {
     if (status === 401 || status === 403) return new AiError("Khoá API Gemini không hợp lệ hoặc không có quyền", "auth");
     if (status === 429) return new AiError(`${GEMINI_RATE_LIMITED} (429) — thử lại sau`, "rate_limit", true);
     if (status === 400) return new AiError(`Yêu cầu Gemini không hợp lệ: ${err.message}`, "bad_request");
+    if (status === 404 && /no longer available/i.test(err.message)) {
+      const model = /models\/([\w.:-]+)/.exec(err.message)?.[1] ?? "này";
+      return new AiError(
+        `Mô hình ${model} không còn được Google cung cấp cho khoá API / dự án mới — hãy chọn mô hình khác (bấm “Tải danh sách mô hình”)`,
+        "bad_request",
+      );
+    }
     if (status === 404) return new AiError(`Không tìm thấy mô hình Gemini: ${err.message}`, "bad_request");
     if (status === 503) {
       return new AiError(`${GEMINI_OVERLOADED} (503 — mô hình đang có nhu cầu cao, thường chỉ tạm thời)`, "overloaded", true);
