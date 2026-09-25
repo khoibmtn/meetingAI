@@ -53,7 +53,7 @@ export function NewRecordingForm({ initialMode, storageReady = true }: { initial
   const [autoReport, setAutoReport] = useState<string>(DEFAULT_AUTO_TEMPLATE.giao_ban);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [chunkMinutes, setChunkMinutes] = useState("10");
-  const [normalize, setNormalize] = useState("loudnorm");
+  const [normalize, setNormalize] = useState("gain");
   const [denoise, setDenoise] = useState(false);
   const [gapFill, setGapFill] = useState(true);
   const [nameSpeakers, setNameSpeakers] = useState(true);
@@ -343,11 +343,14 @@ export function NewRecordingForm({ initialMode, storageReady = true }: { initial
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="loudnorm">Chuẩn EBU R128 (mặc định)</SelectItem>
+                          <SelectItem value="gain">Cân bằng âm lượng (mặc định)</SelectItem>
                           <SelectItem value="dynaudnorm">Tăng cường người nói xa micro</SelectItem>
                           <SelectItem value="none">Giữ nguyên</SelectItem>
                         </SelectContent>
                       </Select>
+                      {isSoniox ? (
+                        <p className="text-xs text-muted-foreground">Soniox nhận nguyên tệp gốc (m4a, mp3, wav…); tuỳ chọn này chỉ áp dụng khi phải chuyển định dạng.</p>
+                      ) : null}
                     </div>
                     <Toggle label="Khử nhiễu (không khuyến nghị)" checked={denoise} onChange={setDenoise} hint="Khử nhiễu thường làm tăng lỗi nhận dạng giọng nói." />
                     {!isSoniox ? (

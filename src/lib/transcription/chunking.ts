@@ -48,7 +48,8 @@ export function planChunks(
   while (durationSec - start > o.targetSec + o.minTailSec) {
     const target = start + o.targetSec;
     const lo = target - o.searchSec;
-    const hi = target + o.searchSec;
+    // Không để đoạn cuối ngắn hơn minTailSec
+    const hi = Math.min(target + o.searchSec, durationSec - o.minTailSec);
     // Khoảng lặng có trung điểm nằm trong cửa sổ tìm kiếm; ưu tiên dài, rồi gần mục tiêu
     let best: { cut: number; score: number } | null = null;
     for (const s of candidates) {

@@ -22,7 +22,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       const admin = createAdminClient();
       const { data: chunks } = await admin.from("transcription_chunks").select("idx,status").eq("job_id", id);
       const hasChunks = (chunks ?? []).length > 0;
-      await admin.from("transcription_chunks").update({ status: "pending", attempts: 0, error: null }).eq("job_id", id).eq("status", "error");
+      await admin
+        .from("transcription_chunks")
+        .update({ status: "pending", attempts: 0, error: null, next_attempt_at: null })
+        .eq("job_id", id)
+        .eq("status", "error");
       const allDone = hasChunks && (chunks ?? []).every((c) => c.status === "done");
       await admin
         .from("transcription_jobs")

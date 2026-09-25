@@ -393,6 +393,7 @@ create table public.transcription_chunks (
   mime_type text,
   status text not null default 'pending' check (status in ('pending', 'processing', 'done', 'error')),
   attempts integer not null default 0,
+  next_attempt_at timestamptz,  -- đoạn lỗi tạm thời: chưa được nhận lại trước thời điểm này (giãn cách thử lại)
   result jsonb,
   error text,
   claimed_at timestamptz,
@@ -415,10 +416,10 @@ declare
   n integer;
 begin
   update public.transcription_chunks
-     set status = 'processing', claimed_at = now(), attempts = attempts + 1, error = null
+     set status = 'processing', claimed_at = now(), attempts = attempts + 1, error = null, next_attempt_at = null
    where job_id = p_job and idx = p_idx
      and (
-       status = 'pending'
+       (status = 'pending' and (next_attempt_at is null or next_attempt_at <= now()))
        or (status = 'processing' and claimed_at < now() - make_interval(secs => p_stale_seconds))
      );
   get diagnostics n = row_count;

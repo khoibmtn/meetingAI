@@ -872,6 +872,7 @@ export type Database = {
           mime_type: string | null;
           status: string;
           attempts: number;
+          next_attempt_at: string | null;
           result: Json | null;
           error: string | null;
           claimed_at: string | null;
@@ -888,6 +889,7 @@ export type Database = {
           mime_type?: string | null;
           status?: string;
           attempts?: number;
+          next_attempt_at?: string | null;
           result?: Json | null;
           error?: string | null;
           claimed_at?: string | null;
@@ -904,6 +906,7 @@ export type Database = {
           mime_type?: string | null;
           status?: string;
           attempts?: number;
+          next_attempt_at?: string | null;
           result?: Json | null;
           error?: string | null;
           claimed_at?: string | null;

@@ -20,7 +20,7 @@ export function TranscribeDialog({ recordingId, hasTranscript, disabled }: { rec
   const [open, setOpen] = useState(false);
   const [connectionId, setConnectionId] = useConnectionChoice(conns, "transcription");
   const [chunkMinutes, setChunkMinutes] = useState("10");
-  const [normalize, setNormalize] = useState("loudnorm");
+  const [normalize, setNormalize] = useState("gain");
   const [gapFill, setGapFill] = useState(true);
   const [nameSpeakers, setNameSpeakers] = useState(true);
   const [correctTermsChoice, setCorrectTerms] = useState<boolean | null>(null);
@@ -99,11 +99,14 @@ export function TranscribeDialog({ recordingId, hasTranscript, disabled }: { rec
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="loudnorm">Chuẩn EBU R128</SelectItem>
+                <SelectItem value="gain">Cân bằng âm lượng (mặc định)</SelectItem>
                 <SelectItem value="dynaudnorm">Tăng cường người nói xa micro</SelectItem>
                 <SelectItem value="none">Giữ nguyên</SelectItem>
               </SelectContent>
             </Select>
+            {isSoniox ? (
+              <p className="text-xs text-muted-foreground">Soniox nhận nguyên tệp gốc (m4a, mp3, wav…); tuỳ chọn này chỉ áp dụng khi phải chuyển định dạng.</p>
+            ) : null}
           </div>
           {!isSoniox ? <Row label="Quét bổ sung khoảng bị bỏ sót" checked={gapFill} onChange={setGapFill} /> : null}
           <Row label="Nhận diện tên người nói" checked={nameSpeakers} onChange={setNameSpeakers} />

@@ -80,6 +80,8 @@ export function RecordingWorkspace(props: WorkspaceProps) {
   );
 }
 
+const ACTIVE_JOB = ["queued", "preparing", "transcribing", "finalizing"];
+
 function WorkspaceInner({ recording, transcript, job, reports, customTemplates, canEdit, isOwner }: WorkspaceProps) {
   const router = useRouter();
   const params = useSearchParams();
@@ -95,7 +97,16 @@ function WorkspaceInner({ recording, transcript, job, reports, customTemplates, 
   const [tab, setTab] = useState(params.get("tab") ?? "reports");
   const [mobileTab, setMobileTab] = useState(params.get("tab") ?? "transcript");
   const [noteRequest, setNoteRequest] = useState<{ anchor?: number; content?: string; nonce: number } | null>(null);
-  const jobActive = job && ["queued", "preparing", "transcribing", "finalizing", "error"].includes(job.status);
+  // Trạng thái tác vụ theo thời gian thực (JobProgress báo lên); đặt lại khi máy chủ gửi bản mới (router.refresh)
+  const serverJobKey = job ? `${job.id}:${job.status}` : "";
+  const [seenJobKey, setSeenJobKey] = useState(serverJobKey);
+  const [liveJobStatus, setLiveJobStatus] = useState(job?.status ?? null);
+  if (serverJobKey !== seenJobKey) {
+    setSeenJobKey(serverJobKey);
+    setLiveJobStatus(job?.status ?? null);
+  }
+  const jobRunning = !!liveJobStatus && ACTIVE_JOB.includes(liveJobStatus);
+  const jobFailed = liveJobStatus === "error";
   // Chỉ dựng một bố cục (desktop hoặc di động) sau khi biết kích thước màn hình
   const isDesktop = useMediaQuery("(min-width: 1024px)");
   const showDesktop = isDesktop !== false;
@@ -146,7 +157,13 @@ function WorkspaceInner({ recording, transcript, job, reports, customTemplates, 
       onAddSpeaker={t.addSpeaker}
       onAddNoteAt={addNoteAt}
     />
-  ) : jobActive ? (
+  ) : jobFailed ? (
+    <EmptyState
+      icon={<ScrollTextIcon />}
+      title="Phiên âm chưa hoàn tất"
+      description="Xem lỗi ở phía trên. Bấm “Thử lại” để xử lý tiếp các đoạn còn thiếu (giữ nguyên phần đã xong), hoặc “Phiên âm lại” với cấu hình khác."
+    />
+  ) : jobRunning ? (
     <div className="space-y-4 p-2" aria-busy="true">
       <p className="flex items-center gap-2 text-sm text-muted-foreground">
         <Spinner /> Transcript sẽ tự hiện khi phiên âm xong — có thể rời trang, máy chủ vẫn xử lý.
@@ -228,7 +245,7 @@ function WorkspaceInner({ recording, transcript, job, reports, customTemplates, 
           <ShareDialog recordingId={recording.id} recordingTitle={recording.title} isOwner={isOwner} />
           <ExportMenu title={recording.title} segments={segments} speakers={speakers} />
           {canEdit && recording.upload_status === "uploaded" ? (
-            <TranscribeDialog recordingId={recording.id} hasTranscript={segments.length > 0} disabled={!!job && ["queued", "preparing", "transcribing", "finalizing"].includes(job.status)} />
+            <TranscribeDialog recordingId={recording.id} hasTranscript={segments.length > 0} disabled={jobRunning} />
           ) : null}
           {canEdit || isOwner ? (
             <DropdownMenu>
@@ -261,7 +278,7 @@ function WorkspaceInner({ recording, transcript, job, reports, customTemplates, 
         </div>
       </div>
 
-      {job && jobActive ? <JobProgress initialJob={job} canEdit={canEdit} /> : null}
+      {job && (jobRunning || jobFailed) ? <JobProgress initialJob={job} canEdit={canEdit} onStatusChange={setLiveJobStatus} /> : null}
       {transcript?.quality && transcript.quality.coverageRatio < 0.9 && segments.length ? <QualityCard quality={transcript.quality} /> : null}
       {player.error ? <p className="text-sm text-destructive">{player.error}</p> : null}
 

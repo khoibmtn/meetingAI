@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
+import { redirect } from "next/navigation";
 import { CheckCircle2Icon, CircleAlertIcon } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
+import { isSupabaseConfigured } from "@/lib/env";
+import { getSessionProfile } from "@/lib/auth";
 
 export const metadata: Metadata = { title: "Cài đặt ban đầu" };
 export const dynamic = "force-dynamic";
@@ -22,7 +25,12 @@ const CHECKS: { key: string[]; label: string; required: boolean; hint: string }[
   { key: ["CRON_SECRET"], label: "Bí mật Vercel Cron", required: false, hint: "Cho tác vụ tự khôi phục" },
 ];
 
-export default function SetupPage() {
+export default async function SetupPage() {
+  // Khi đã cấu hình xong, chỉ quản trị viên được xem danh sách biến môi trường.
+  if (isSupabaseConfigured()) {
+    const session = await getSessionProfile().catch(() => null);
+    if (session?.profile?.role !== "admin") redirect("/");
+  }
   const present = (keys: string[]) => keys.some((k) => Boolean(process.env[k]));
   return (
     <main className="mx-auto max-w-2xl space-y-6 p-6 py-12">

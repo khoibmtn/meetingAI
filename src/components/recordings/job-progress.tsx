@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { AlertTriangleIcon, Loader2Icon, RefreshCwIcon } from "lucide-react";
@@ -16,9 +16,39 @@ const ACTIVE = ["queued", "preparing", "transcribing", "finalizing"];
 /** Nếu tiến độ đứng yên quá lâu → tự yêu cầu server khôi phục (worker có thể đã hết giờ). */
 const WATCHDOG_MS = 90_000;
 
-export function JobProgress({ initialJob, canEdit }: { initialJob: Job; canEdit: boolean }) {
+export function JobProgress({
+  initialJob,
+  canEdit,
+  onStatusChange,
+}: {
+  initialJob: Job;
+  canEdit: boolean;
+  /** Báo trạng thái mới cho trang (vd. để đổi vùng transcript giữa "đang xử lý" và "lỗi"). */
+  onStatusChange?: (status: string) => void;
+}) {
   const router = useRouter();
-  const [job, setJob] = useState<Job>(initialJob);
+  const [job, setJobState] = useState<Job>(initialJob);
+  const statusCb = useRef(onStatusChange);
+  const prevStatus = useRef(initialJob.status);
+  useEffect(() => {
+    statusCb.current = onStatusChange;
+  }, [onStatusChange]);
+  // Xử lý chuyển trạng thái ngay khi nhận dữ liệu mới (không đợi effect — component có thể bị gỡ khi xong)
+  const setJob = useCallback(
+    (next: Job) => {
+      setJobState(next);
+      if (next.status === prevStatus.current) return;
+      prevStatus.current = next.status;
+      statusCb.current?.(next.status);
+      if (next.status === "done") {
+        toast.success("Phiên âm hoàn tất");
+        router.refresh(); // tải transcript mới
+      } else if (next.status === "error") {
+        router.refresh(); // cập nhật trạng thái bản ghi
+      }
+    },
+    [router],
+  );
   const [retrying, setRetrying] = useState(false);
   const lastKick = useRef(0);
 
@@ -41,15 +71,7 @@ export function JobProgress({ initialJob, canEdit }: { initialJob: Job; canEdit:
       window.clearInterval(poll);
       supabase.removeChannel(channel);
     };
-  }, [initialJob.id]);
-
-  // Xong → tải lại dữ liệu trang
-  useEffect(() => {
-    if (job.status === "done") {
-      toast.success("Phiên âm hoàn tất");
-      router.refresh();
-    }
-  }, [job.status, router]);
+  }, [initialJob.id, setJob]);
 
   // Watchdog phía client
   useEffect(() => {
@@ -68,6 +90,8 @@ export function JobProgress({ initialJob, canEdit }: { initialJob: Job; canEdit:
     setRetrying(true);
     try {
       await apiJson(`/api/jobs/${job.id}/resume`, { method: "POST", json: { retryFailed: true } });
+      const { data } = await createClient().from("transcription_jobs").select("*").eq("id", job.id).maybeSingle();
+      if (data) setJob(data);
       toast.success("Đang thử lại");
     } catch (e) {
       toast.error((e as Error).message);

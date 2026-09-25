@@ -17,10 +17,18 @@ import {
   type WorkerPayload,
 } from "./jobs";
 import type { Json, Tables } from "@/lib/database.types";
-import { fetchDriveMedia } from "@/lib/drive/google";
-import { decodeToWorkingWav, detectSilences, encodeChunk, silenceThresholdDb } from "@/lib/audio/ffmpeg";
+import { driveMediaUrl, fetchDriveMedia, getAccessToken } from "@/lib/drive/google";
+import {
+  analyzeAudio,
+  encodeChunk,
+  normalizationGainDb,
+  toNormalizeMode,
+  type AudioSource,
+  type EncodeOptions,
+} from "@/lib/audio/ffmpeg";
 import { generateJson, type ConnectionConfig } from "@/lib/ai";
 import { getConnectionConfig, markAuthFailure, requireConnection, resolveConnection } from "@/lib/ai/connections";
+import { AiError } from "@/lib/ai/types";
 import { serverEnv } from "@/lib/env";
 import { sleep, stripDiacritics } from "@/lib/utils";
 import { planChunks } from "./chunking";
@@ -67,6 +75,10 @@ interface JobAnalysis {
   durationSec?: number;
   meanVolumeDb?: number | null;
   silenceThresholdDb?: number;
+  noiseFloorDb?: number | null;
+  speechLevelDb?: number | null;
+  /** Mức khuếch đại tuyến tính đã áp dụng khi mã hoá (chế độ "gain"). */
+  gainDb?: number | null;
   speech?: Interval[];
   plans?: ChunkPlan[];
   roster?: Speaker[];
@@ -162,9 +174,53 @@ async function transcriptionConn(job: Job): Promise<ConnectionConfig> {
   return requireConnection("transcription", job.created_by);
 }
 
-function encodeOptions(opts: JobOptions) {
-  const mode = opts.normalize ?? "loudnorm";
-  return { normalize: mode, denoise: Boolean(opts.denoise) };
+function encodeOptions(opts: JobOptions, meanVolumeDb: number | null): EncodeOptions {
+  return {
+    normalize: toNormalizeMode(opts.normalize),
+    gainDb: normalizationGainDb(meanVolumeDb),
+    denoise: Boolean(opts.denoise),
+  };
+}
+
+/** Tệp gốc tối đa bao nhiêu thì chép vào /tmp (Vercel cho 500 MB); lớn hơn thì ffmpeg đọc thẳng từ Drive. */
+const LOCAL_ORIGINAL_MAX_BYTES = 200 * 1024 * 1024;
+
+/** Định dạng gửi thẳng tệp gốc cho Soniox (không mã hoá lại). */
+const SONIOX_PASSTHROUGH = /^(audio\/(mp4|x-m4a|m4a|aac|mpeg|mp3|wav|x-wav|wave|flac|x-flac|ogg|webm|opus)|video\/(mp4|webm))$/;
+
+interface OpenedSource {
+  src: AudioSource;
+  /** Đường dẫn tệp gốc đã tải về (null nếu đọc trực tiếp từ Drive). */
+  localPath: string | null;
+}
+
+/**
+ * Mở tệp gốc cho ffmpeg. Tệp nhỏ: tải về /tmp (đọc nhiều lượt nhanh, ổn định).
+ * Tệp lớn (vd. WAV 1–2 GB): ffmpeg đọc trực tiếp từ Drive qua HTTPS + Range, không chiếm /tmp.
+ */
+async function openOriginal(dir: string, fileId: string, sizeBytes: number): Promise<OpenedSource> {
+  if (sizeBytes > 0 && sizeBytes <= LOCAL_ORIGINAL_MAX_BYTES) {
+    const localPath = path.join(dir, "original");
+    await downloadOriginal(fileId, localPath);
+    return { src: { input: localPath }, localPath };
+  }
+  const token = await getAccessToken();
+  return {
+    src: {
+      input: driveMediaUrl(fileId),
+      inputArgs: [
+        "-headers",
+        `Authorization: Bearer ${token}\r\n`,
+        "-reconnect",
+        "1",
+        "-reconnect_on_network_error",
+        "1",
+        "-reconnect_delay_max",
+        "10",
+      ],
+    },
+    localPath: null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -222,39 +278,45 @@ async function stepPrepare(admin: Admin, jobId: string) {
   await patchJob(admin, jobId, { stage: "Đang tải tệp gốc từ Google Drive", progress: 2, error: null });
 
   await withTempDir(async (dir) => {
-    const orig = path.join(dir, "original");
-    const wav = path.join(dir, "work.wav");
-    await downloadOriginal(recording.drive_file_id!, orig);
+    const { src, localPath } = await openOriginal(dir, recording.drive_file_id!, Number(recording.size_bytes ?? 0));
 
-    await patchJob(admin, jobId, { stage: "Đang chuẩn hoá âm thanh (16 kHz, mono)", progress: 5 });
-    const analysis = await decodeToWorkingWav(orig, wav);
+    await patchJob(admin, jobId, { stage: "Đang phân tích âm lượng, khoảng lặng và tiếng nói", progress: 5 });
+    const analysis = await analyzeAudio(src, dir);
     if (!(analysis.durationSec > 1)) throw new Error("Tệp không có dữ liệu âm thanh hợp lệ");
-
-    await patchJob(admin, jobId, { stage: "Đang phân tích khoảng lặng / tiếng nói", progress: 7 });
-    const threshold = silenceThresholdDb(analysis.meanVolumeDb);
-    const silences = await detectSilences(wav, analysis.durationSec, threshold);
+    const silences = analysis.silences;
     const speech = speechIntervals(silences, analysis.durationSec).map((i) => ({
       start: Math.round(i.start * 100) / 100,
       end: Math.round(i.end * 100) / 100,
     }));
+    const encOpts = encodeOptions(opts, analysis.meanVolumeDb);
     await patchAnalysis(admin, jobId, {
       durationSec: analysis.durationSec,
       meanVolumeDb: analysis.meanVolumeDb,
-      silenceThresholdDb: threshold,
+      silenceThresholdDb: analysis.silenceThresholdDb,
+      noiseFloorDb: analysis.noiseFloorDb,
+      speechLevelDb: analysis.speechLevelDb,
+      gainDb: encOpts.normalize === "gain" ? encOpts.gainDb : null,
       speech,
     });
     if (!recording.duration_sec) {
       await admin.from("recordings").update({ duration_sec: analysis.durationSec }).eq("id", recording.id);
     }
-    const encOpts = encodeOptions(opts);
 
     if (opts.engine === "soniox") {
       const conn = await transcriptionConn(job);
-      const full = path.join(dir, "full.flac");
-      await patchJob(admin, jobId, { stage: "Đang mã hoá âm thanh để gửi Soniox", progress: 8 });
-      await encodeChunk(wav, 0, analysis.durationSec, full, encOpts);
+      // Soniox tự xử lý âm lượng và phân vai trên toàn tệp: gửi nguyên tệp gốc nếu định dạng phổ biến;
+      // còn lại (hoặc tệp quá lớn) thì mã hoá FLAC 16 kHz không mất dữ liệu.
+      let uploadPath = localPath;
+      let uploadMime = recording.mime_type ?? "";
+      if (!uploadPath || !SONIOX_PASSTHROUGH.test(uploadMime)) {
+        uploadPath = path.join(dir, "full.flac");
+        uploadMime = "audio/flac";
+        await patchJob(admin, jobId, { stage: "Đang mã hoá âm thanh để gửi Soniox", progress: 8 });
+        await encodeChunk(src, 0, null, uploadPath, encOpts);
+        if (localPath) await rm(localPath, { force: true });
+      }
       await patchJob(admin, jobId, { stage: "Đang tải âm thanh lên Soniox", progress: 10 });
-      const fileId = await sonioxUploadFile(conn, full, "audio/flac");
+      const fileId = await sonioxUploadFile(conn, uploadPath, uploadMime);
       const glossary = await loadGlossaryForRecording(recording.id, [job.created_by ?? "", recording.owner_id]);
       const base = job.base_url ?? resolveBaseUrl();
       const transcriptionId = await sonioxCreateTranscription(conn, {
@@ -287,8 +349,12 @@ async function stepPrepare(admin: Admin, jobId: string) {
     });
     const refs = await mapLimit(plans, 3, async (plan) => {
       const out = path.join(dir, `chunk-${plan.idx}.flac`);
-      await encodeChunk(wav, plan.start, plan.end, out, encOpts);
-      return uploadToGemini(ai, out, "audio/flac", `rec-${recording.id}-chunk-${plan.idx}`);
+      await encodeChunk(src, plan.start, plan.end, out, encOpts);
+      try {
+        return await uploadToGemini(ai, out, "audio/flac", `rec-${recording.id}-chunk-${plan.idx}`);
+      } finally {
+        await rm(out, { force: true }); // giải phóng /tmp ngay sau khi tải lên
+      }
     });
     const rows = plans.map((plan, i) => ({
       job_id: jobId,
@@ -358,6 +424,13 @@ async function stepChunk(admin: Admin, jobId: string, idx?: number) {
     .eq("kind", "main")
     .order("idx");
   if (!chunks || chunks.length === 0) return;
+
+  // Được gọi riêng cho một đoạn đang chờ thử lại: đợi tới hạn (giãn cách do lỗi tạm thời) rồi mới nhận
+  if (idx !== undefined) {
+    const target = chunks.find((c) => c.idx === idx);
+    const waitMs = target?.status === "pending" && target.next_attempt_at ? Date.parse(target.next_attempt_at) - Date.now() : 0;
+    if (waitMs > 0) await sleep(Math.min(waitMs + 250, MAX_RETRY_WAIT_MS));
+  }
 
   const firstDone = chunks[0].status === "done";
   // Đoạn 0 phải xong trước (để lập danh sách người nói dùng chung)
@@ -459,15 +532,19 @@ async function stepChunk(admin: Admin, jobId: string, idx?: number) {
     }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
+    // chunk.attempts là số lần nhận TRƯỚC lần này (claim đã +1 trong CSDL)
     const attempts = chunk.attempts + 1;
     if (attempts < MAX_CHUNK_ATTEMPTS) {
+      const waitMs = retryDelayMs(err, attempts);
+      // Trả đoạn về hàng chờ kèm hạn thử lại: worker khác không nhận sớm hơn hạn này
       await admin
         .from("transcription_chunks")
-        .update({ status: "pending", error: message })
+        .update({ status: "pending", error: message, next_attempt_at: new Date(Date.now() + waitMs).toISOString() })
         .eq("job_id", jobId)
         .eq("idx", chunk.idx);
-      await patchJob(admin, jobId, { stage: `Đoạn ${chunk.idx + 1} lỗi, đang thử lại (${attempts}/${MAX_CHUNK_ATTEMPTS})…` });
-      await sleep(/429|giới hạn/i.test(message) ? 30_000 : 5_000);
+      await patchJob(admin, jobId, {
+        stage: `Đoạn ${chunk.idx + 1} lỗi, thử lại sau ${Math.round(waitMs / 1000)} giây (${attempts}/${MAX_CHUNK_ATTEMPTS})…`,
+      });
       await triggerWorker(base, { jobId, step: "chunk", idx: chunk.idx });
     } else {
       await admin
@@ -478,6 +555,17 @@ async function stepChunk(admin: Admin, jobId: string, idx?: number) {
       throw new Error(`Đoạn ${chunk.idx + 1} phiên âm thất bại sau ${MAX_CHUNK_ATTEMPTS} lần: ${message}`);
     }
   }
+}
+
+/** Chờ tối đa trước khi thử lại một đoạn (nằm trong ngân sách thời gian của một lần gọi hàm). */
+const MAX_RETRY_WAIT_MS = 90_000;
+
+/** Giãn cách thử lại: 429 (giới hạn tần suất) chờ lâu hơn; tăng dần theo số lần. */
+export function retryDelayMs(err: unknown, attempt: number): number {
+  const rateLimited =
+    (err instanceof AiError && err.kind === "rate_limit") || /429|giới hạn|quota|exhausted/i.test(String(err));
+  const base = rateLimited ? 30_000 : 10_000;
+  return Math.min(base * 2 ** Math.max(0, attempt - 1), MAX_RETRY_WAIT_MS);
 }
 
 function rosterFromResult(plan: ChunkPlan, result: RawChunkResult): Speaker[] {
@@ -652,6 +740,9 @@ async function stepFinalize(admin: Admin, jobId: string) {
     }
   }
 
+  // Bản máy gốc: đầu ra nhận dạng TRƯỚC khi AI hiệu đính thuật ngữ — lưu vào original_segments để đối chiếu/khôi phục
+  let machineSegments = segments;
+
   // Hiệu đính thuật ngữ (đề xuất có kiểm chứng) — mặc định bật cho Soniox
   if (opts.correctTerms && Date.now() < deadline - 60_000) {
     const corrConn = await resolveConnection("term_correction", job.created_by);
@@ -686,7 +777,10 @@ async function stepFinalize(admin: Admin, jobId: string) {
           overrides: { effort: namingConn.params.effort ?? "medium" },
           messages: [{ role: "user", content: buildSpeakerNamingInput(ctx, speakers, segments, talk) }],
         });
-        ({ segments, speakers } = applySpeakerNaming(segments, speakers, naming));
+        const before = speakers;
+        ({ segments, speakers } = applySpeakerNaming(segments, before, naming));
+        // Cùng phép gộp người nói cho bản máy gốc để khoá người nói luôn khớp danh sách
+        machineSegments = applySpeakerNaming(machineSegments, before, naming).segments;
       } catch (err) {
         await markAuthFailure(namingConn, err);
         warnings.push(`Không tự nhận diện được tên người nói: ${err instanceof Error ? err.message : String(err)}`);
@@ -729,7 +823,7 @@ async function stepFinalize(admin: Admin, jobId: string) {
   const { error } = await admin.from("transcripts").upsert({
     recording_id: recording.id,
     segments: segments as unknown as Json,
-    original_segments: segments as unknown as Json,
+    original_segments: machineSegments as unknown as Json,
     speakers: speakers as unknown as Json,
     engine: opts.engine,
     model: job.model,

@@ -15,7 +15,8 @@ type Recording = Tables<"recordings">;
 type Admin = ReturnType<typeof createAdminClient>;
 
 export type Engine = "gemini" | "soniox";
-export type NormalizeMode = "loudnorm" | "dynaudnorm" | "none";
+/** "gain": chuẩn hoá tuyến tính (mặc định); "loudnorm" là tên cũ, được hiểu như "gain". */
+export type NormalizeMode = "gain" | "dynaudnorm" | "none";
 
 export interface JobOptions {
   engine: Engine;
@@ -132,7 +133,7 @@ export async function startTranscription(params: {
     connectionId: conn.id ?? null,
     model: conn.model,
     chunkMinutes: Math.min(20, Math.max(5, params.options.chunkMinutes ?? 10)),
-    normalize: params.options.normalize ?? "loudnorm",
+    normalize: (["gain", "dynaudnorm", "none"] as const).find((m) => m === params.options.normalize) ?? "gain",
     denoise: params.options.denoise ?? false,
     gapFill: params.options.gapFill ?? true,
     nameSpeakers: params.options.nameSpeakers ?? true,

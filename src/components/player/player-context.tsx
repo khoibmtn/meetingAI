@@ -22,7 +22,9 @@ const Ctx = createContext<PlayerState | null>(null);
 export function PlayerProvider({ src, initialDuration, children }: { src: string | null; initialDuration?: number | null; children: React.ReactNode }) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
-  const [duration, setDuration] = useState(initialDuration ?? 0);
+  const [mediaDuration, setDuration] = useState(0);
+  // Thời lượng từ siêu dữ liệu âm thanh; nếu trình duyệt chưa đọc được thì dùng số liệu máy chủ đã đo
+  const duration = mediaDuration > 0 ? mediaDuration : (initialDuration ?? 0);
   const [playing, setPlaying] = useState(false);
   const [rate, setRateState] = useState(1);
   const [ready, setReady] = useState(false);

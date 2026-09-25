@@ -181,4 +181,22 @@ do $$ begin
 end $$;
 reset role;
 
+-- Đoạn lỗi tạm thời: chưa đến next_attempt_at thì không ai nhận được (giãn cách thử lại)
+update public.transcription_chunks set status = 'pending', next_attempt_at = now() + interval '30 seconds'
+ where job_id = '30000000-0000-0000-0000-000000000001' and idx = 0;
+set role service_role;
+do $$ begin
+  assert public.claim_transcription_chunk('30000000-0000-0000-0000-000000000001', 0) = false, 'chua den han thu lai';
+end $$;
+reset role;
+update public.transcription_chunks set next_attempt_at = now() - interval '1 second'
+ where job_id = '30000000-0000-0000-0000-000000000001' and idx = 0;
+set role service_role;
+do $$ begin
+  assert public.claim_transcription_chunk('30000000-0000-0000-0000-000000000001', 0) = true, 'den han thi nhan duoc';
+  assert (select next_attempt_at is null and attempts = 2 from public.transcription_chunks
+           where job_id = '30000000-0000-0000-0000-000000000001' and idx = 0), 'xoa han cho va tang so lan';
+end $$;
+reset role;
+
 select 'RLS OK' as result;

@@ -10,9 +10,11 @@ import { getSetting, setSetting } from "@/lib/settings";
  */
 
 export const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file";
-const TOKEN_URL = "https://oauth2.googleapis.com/token";
-const API = "https://www.googleapis.com/drive/v3";
-const UPLOAD_API = "https://www.googleapis.com/upload/drive/v3";
+const TOKEN_URL = process.env.GOOGLE_OAUTH_TOKEN_URL || "https://oauth2.googleapis.com/token";
+// Cho phép trỏ tới máy chủ giả lập khi kiểm thử (tương tự các emulator); mặc định là Google.
+const GOOGLE_APIS = (process.env.GOOGLE_API_BASE_URL || "https://www.googleapis.com").replace(/\/$/, "");
+const API = `${GOOGLE_APIS}/drive/v3`;
+const UPLOAD_API = `${GOOGLE_APIS}/upload/drive/v3`;
 
 export interface DriveSettings {
   refresh_token_enc?: string;
@@ -246,6 +248,11 @@ export async function queryUploadStatus(sessionUri: string, total: number): Prom
 }
 
 /** Lấy nội dung tệp (có hỗ trợ Range) — dùng để phát audio và tải về xử lý. */
+/** URL tải nội dung tệp (dùng kèm header Authorization: Bearer <access token>). */
+export function driveMediaUrl(fileId: string): string {
+  return `${API}/files/${encodeURIComponent(fileId)}?alt=media`;
+}
+
 export async function fetchDriveMedia(fileId: string, range?: string | null, signal?: AbortSignal): Promise<Response> {
   const headers: Record<string, string> = {};
   if (range) headers.Range = range;

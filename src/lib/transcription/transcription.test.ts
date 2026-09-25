@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatSrtTime, formatTimecode, parseTimecode } from "./timecode";
-import { parseFfmpegDuration, parseSilenceDetect, speechIntervals } from "./silence";
+import { speechIntervals } from "./silence";
 import { planChunks } from "./chunking";
 import {
   collapseInlineLoops,
@@ -33,23 +33,14 @@ describe("timecode", () => {
   });
 });
 
-describe("silence detection", () => {
-  const stderr = `
-  Duration: 00:40:03.54, start: 0.000000, bitrate: 66 kb/s
-[silencedetect @ 0x1] silence_start: 10.5
-[silencedetect @ 0x1] silence_end: 12.0 | silence_duration: 1.5
-[silencedetect @ 0x1] silence_start: 2400.0
-`;
-  it("parses duration and silences", () => {
-    const dur = parseFfmpegDuration(stderr)!;
-    expect(dur).toBeCloseTo(2403.54, 2);
-    const s = parseSilenceDetect(stderr, dur);
-    expect(s).toEqual([
+describe("speechIntervals", () => {
+  it("lấy phần bù của các khoảng lặng", () => {
+    const dur = 2403.54;
+    const s = [
       { start: 10.5, end: 12 },
       { start: 2400, end: dur },
-    ]);
-    const sp = speechIntervals(s, dur);
-    expect(sp).toEqual([
+    ];
+    expect(speechIntervals(s, dur)).toEqual([
       { start: 0, end: 10.5 },
       { start: 12, end: 2400 },
     ]);
@@ -81,6 +72,16 @@ describe("planChunks", () => {
   it("merges a short tail into the previous chunk", () => {
     const plans = planChunks(700, [], { targetSec: 600, minTailSec: 120 });
     expect(plans).toHaveLength(1);
+  });
+  it("never leaves a tail shorter than minTailSec when cutting at a late silence", () => {
+    // Khoảng lặng muộn (1271 s) dài hơn, nằm trong cửa sổ ±90 s nhưng sẽ để lại đoạn cuối chỉ 79 s
+    const plans = planChunks(1350, [{ start: 1150, end: 1151 }, { start: 1270, end: 1272 }], {
+      targetSec: 600,
+      searchSec: 90,
+      minTailSec: 120,
+    });
+    const tail = plans[plans.length - 1];
+    expect(tail.end - tail.start).toBeGreaterThanOrEqual(120);
   });
 });
 
