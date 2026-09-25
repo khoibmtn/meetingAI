@@ -90,7 +90,8 @@ Trạng thái tác vụ: `queued → preparing → transcribing → finalizing �
    - **Thử lại có giãn cách** (`src/lib/transcription/retry.ts`):
      - Đoạn lỗi được trả về hàng chờ kèm `next_attempt_at`; SQL không cho worker nào nhận đoạn trước hạn đó. Chờ lâu hơn 90 s thì worker ngủ một quãng rồi tự gọi lại chính nó.
      - Lỗi nhất thời (Gemini quá tải 503 "high demand", 429, lỗi mạng): tới 8 lần, chờ 15 s → 30 s → 1 → 2 → 3 phút (~13 phút). Lỗi khác (đầu ra rỗng, JSON hỏng): 3 lần, chờ 10 s rồi 20 s.
-     - **Mô hình dự phòng:** kết nối có thể khai báo `fallbackModel`. Mô hình chính quá tải 2 lần thì đoạn đó chuyển sang mô hình dự phòng (quét bổ sung, đặt tên người nói, soạn văn bản cũng vậy); transcript ghi chú đoạn nào dùng dự phòng.
+     - **Mô hình dự phòng:** kết nối có thể khai báo `fallbackModel`. Mô hình chính quá tải (503) hoặc hết lượt (429) 2 lần thì đoạn đó chuyển sang mô hình dự phòng; các đoạn sau dùng luôn dự phòng trong 15 phút. Quét bổ sung, đặt tên người nói, soạn văn bản cũng chuyển như vậy. Transcript ghi chú đoạn nào dùng dự phòng.
+     - **Tệp đoạn trên Gemini không còn** (Files API chỉ giữ 48 giờ, hoặc khoá API đã đổi sang dự án khác → 403 "permission to access the File"): không coi là sai khoá; worker mã hoá lại đúng đoạn đó từ tệp gốc, tải lên lại rồi gọi lại ngay.
      - Hết lượt vẫn lỗi thì tác vụ báo lỗi. Nút "Thử lại" chỉ xử lý tiếp các đoạn lỗi, giữ nguyên các đoạn đã xong.
      - Lỗi nhất thời khi "Kiểm tra kết nối" chỉ được ghi lại, không đánh dấu kết nối hỏng (chỉ lỗi khoá 401/403 hay mô hình sai mới làm vậy).
 3. **finalize**
