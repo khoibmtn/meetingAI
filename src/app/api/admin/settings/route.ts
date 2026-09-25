@@ -1,5 +1,5 @@
 import { type NextRequest } from "next/server";
-import { jsonError, requireApiAdmin } from "@/lib/auth";
+import { HttpError, jsonError, requireApiAdmin } from "@/lib/auth";
 import { getSetting, setSetting } from "@/lib/settings";
 import type { OrganizationInfo } from "@/lib/reports/generate";
 
@@ -25,6 +25,8 @@ export async function POST(request: NextRequest) {
     const body = (await request.json()) as { organization?: OrganizationInfo; security?: SecuritySettings };
     if (body.organization) {
       const o = body.organization;
+      const contactEmail = o.contactEmail?.trim().slice(0, 200) ?? "";
+      if (contactEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contactEmail)) throw new HttpError(400, "Email liên hệ không hợp lệ");
       await setSetting(
         "organization",
         {
@@ -32,6 +34,7 @@ export async function POST(request: NextRequest) {
           orgName: o.orgName?.trim().slice(0, 200) ?? "",
           orgShort: o.orgShort?.trim().slice(0, 30) ?? "",
           place: o.place?.trim().slice(0, 100) ?? "",
+          contactEmail,
         },
         user.id,
       );

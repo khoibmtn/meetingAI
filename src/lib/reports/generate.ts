@@ -15,6 +15,7 @@ export interface OrganizationInfo {
   orgName?: string; // vd "TRUNG TÂM Y TẾ THỦY NGUYÊN"
   orgShort?: string; // chữ viết tắt, vd "TTYT"
   place?: string; // địa danh
+  contactEmail?: string; // email liên hệ, hiển thị ở trang Chính sách quyền riêng tư / Điều khoản
 }
 
 type Recording = Tables<"recordings">;

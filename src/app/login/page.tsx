@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSessionProfile } from "@/lib/auth";
 import { Logo } from "@/components/brand/logo";
@@ -48,6 +49,15 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
             </div>
           ) : null}
           <LoginForm next={next} />
+          <p className="text-center text-xs text-muted-foreground">
+            <Link href="/privacy" className="underline-offset-4 hover:text-foreground hover:underline">
+              Chính sách quyền riêng tư
+            </Link>
+            {" · "}
+            <Link href="/terms" className="underline-offset-4 hover:text-foreground hover:underline">
+              Điều khoản sử dụng
+            </Link>
+          </p>
         </div>
       </section>
     </main>

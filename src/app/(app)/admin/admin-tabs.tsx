@@ -134,6 +134,7 @@ interface OrgInfo {
   orgName?: string;
   orgShort?: string;
   place?: string;
+  contactEmail?: string;
 }
 
 function OrgCard() {
@@ -163,7 +164,9 @@ function OrgCard() {
     <Card>
       <CardHeader>
         <CardTitle>Thông tin đơn vị & bảo mật</CardTitle>
-        <CardDescription>Dùng cho phần đầu văn bản hành chính (biên bản theo NĐ 30/2020/NĐ-CP).</CardDescription>
+        <CardDescription>
+          Dùng cho phần đầu văn bản hành chính (biên bản theo NĐ 30/2020/NĐ-CP) và trang Chính sách quyền riêng tư, Điều khoản sử dụng.
+        </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3 sm:grid-cols-2">
         <div className="space-y-1.5">
@@ -181,6 +184,21 @@ function OrgCard() {
         <div className="space-y-1.5">
           <Label>Địa danh</Label>
           <Input value={org.place ?? ""} onChange={set("place")} placeholder="VD: Hải Phòng" />
+        </div>
+        <div className="space-y-1.5 sm:col-span-2">
+          <Label>Email liên hệ</Label>
+          <Input type="email" value={org.contactEmail ?? ""} onChange={set("contactEmail")} placeholder="VD: khth@benhvien.vn" />
+          <p className="text-xs text-muted-foreground">
+            Hiển thị công khai ở trang{" "}
+            <a href="/privacy" target="_blank" className="underline underline-offset-2">
+              Chính sách quyền riêng tư
+            </a>{" "}
+            và{" "}
+            <a href="/terms" target="_blank" className="underline underline-offset-2">
+              Điều khoản sử dụng
+            </a>
+            .
+          </p>
         </div>
         <label className="flex items-center justify-between gap-3 rounded-lg border p-3 sm:col-span-2">
           <div>

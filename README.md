@@ -84,9 +84,14 @@ Cần có:
 
 1. Tạo project, rồi bật **Google Drive API** (APIs & Services → Library).
 2. Vào **Google Auth Platform** (tên cũ: OAuth consent screen):
-   - Chọn đối tượng **External**, hoặc **Internal** nếu đơn vị dùng Google Workspace.
-   - Thêm phạm vi `.../auth/drive.file`. Đây là phạm vi không nhạy cảm; ứng dụng chỉ thấy tệp do chính nó tạo.
-   - Bấm **Publish app** để chuyển sang *In production*. Nếu để ở *Testing*, refresh token sẽ hết hạn sau 7 ngày (xem [RESEARCH.md](docs/RESEARCH.md#5-hạ-tầng-triển-khai)).
+   - **Branding:**
+     - App name `MeetingAI`; User support email và Developer contact information: email của bạn.
+     - **Không tải logo lên.** Có logo thì ứng dụng phải qua xác minh của Google trước khi publish.
+     - Application home page `https://<tên-miền-ứng-dụng>`, Privacy policy `https://<tên-miền-ứng-dụng>/privacy`, Terms of service `https://<tên-miền-ứng-dụng>/terms`. Hai trang này có sẵn trong ứng dụng; email liên hệ hiển thị trên đó đặt ở **Quản trị → Đơn vị**.
+     - Authorized domains: `<tên-miền-ứng-dụng>`, không kèm `https://` (với tên miền Vercel, nhập đầy đủ dạng `ten-du-an.vercel.app`, không nhập `vercel.app`); thêm `<project-ref>.supabase.co` nếu dùng đăng nhập Google.
+   - **Audience:** chọn **External**, hoặc **Internal** nếu đơn vị dùng Google Workspace.
+   - **Data Access:** thêm phạm vi `.../auth/drive.file`. Đây là phạm vi không nhạy cảm; ứng dụng chỉ thấy tệp do chính nó tạo.
+   - Bấm **Publish app** (Audience) để chuyển sang *In production*. Nếu để ở *Testing*, phải thêm tài khoản Google của bạn vào **Test users** và refresh token sẽ hết hạn sau 7 ngày (xem [RESEARCH.md](docs/RESEARCH.md#5-hạ-tầng-triển-khai)).
 3. Vào **Clients → Create client → Web application**, thêm **Authorized redirect URIs**:
    - `https://<tên-miền-ứng-dụng>/api/admin/drive/callback`
    - `http://localhost:3000/api/admin/drive/callback` (chạy thử trên máy)

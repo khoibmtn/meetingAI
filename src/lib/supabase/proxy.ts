@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import type { Database } from "@/lib/database.types";
 import { publicEnv, isSupabaseConfigured } from "@/lib/env";
 
-const PUBLIC_PATHS = ["/login", "/auth", "/setup"];
+const PUBLIC_PATHS = ["/login", "/auth", "/setup", "/privacy", "/terms"];
 
 /** Làm mới phiên Supabase và chặn truy cập trang khi chưa đăng nhập. */
 export async function updateSession(request: NextRequest) {
