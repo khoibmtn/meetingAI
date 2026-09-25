@@ -216,6 +216,76 @@ export type Database = {
           },
         ];
       };
+      ai_usage: {
+        Row: {
+          id: number;
+          created_at: string;
+          task: string;
+          provider: string;
+          model: string;
+          connection_id: string | null;
+          user_id: string | null;
+          recording_id: string | null;
+          input_tokens: number;
+          cached_input_tokens: number;
+          cache_write_tokens: number;
+          output_tokens: number;
+          reasoning_tokens: number;
+        };
+        Insert: {
+          id?: number;
+          created_at?: string;
+          task: string;
+          provider: string;
+          model: string;
+          connection_id?: string | null;
+          user_id?: string | null;
+          recording_id?: string | null;
+          input_tokens?: number;
+          cached_input_tokens?: number;
+          cache_write_tokens?: number;
+          output_tokens?: number;
+          reasoning_tokens?: number;
+        };
+        Update: {
+          id?: number;
+          created_at?: string;
+          task?: string;
+          provider?: string;
+          model?: string;
+          connection_id?: string | null;
+          user_id?: string | null;
+          recording_id?: string | null;
+          input_tokens?: number;
+          cached_input_tokens?: number;
+          cache_write_tokens?: number;
+          output_tokens?: number;
+          reasoning_tokens?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ai_usage_connection_id_fkey";
+            columns: ["connection_id"];
+            isOneToOne: false;
+            referencedRelation: "ai_connections";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ai_usage_recording_id_fkey";
+            columns: ["recording_id"];
+            isOneToOne: false;
+            referencedRelation: "recordings";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "ai_usage_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "profiles";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       app_settings: {
         Row: {
           key: string;
@@ -1095,6 +1165,22 @@ export type Database = {
     };
     Views: { [_ in never]: never };
     Functions: {
+      ai_usage_summary: {
+        Args: {
+          since: string;
+        };
+        Returns: {
+          provider: string;
+          model: string;
+          task: string;
+          calls: number;
+          input_tokens: number;
+          cached_input_tokens: number;
+          cache_write_tokens: number;
+          output_tokens: number;
+          reasoning_tokens: number;
+        }[];
+      };
       can_edit_recording: {
         Args: {
           rid: string;

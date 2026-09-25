@@ -1,9 +1,10 @@
+import { createHash } from "node:crypto";
 import { type NextRequest } from "next/server";
 import { jsonError, requireApiUser, HttpError } from "@/lib/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { streamText } from "@/lib/ai";
 import { markAuthFailure, requireConnection } from "@/lib/ai/connections";
-import { buildQaContext } from "@/lib/ai/qa";
+import { buildQaContext, historyStart } from "@/lib/ai/qa";
 import { textStreamResponse } from "@/lib/http/stream";
 
 export const maxDuration = 300;
@@ -72,24 +73,41 @@ export async function POST(request: NextRequest) {
     } else {
       await admin.from("ai_conversations").update({ source_ids: sourceIds }).eq("id", conversationId);
     }
-    const { data: history } = await admin
+    // Lịch sử gửi kèm: cắt theo bậc (không trượt từng tin) để phần đầu request giữ nguyên qua nhiều câu hỏi → trúng cache
+    const { count } = await admin
       .from("ai_messages")
-      .select("role, content")
-      .eq("conversation_id", conversationId)
-      .order("created_at", { ascending: false })
-      .limit(20);
+      .select("id", { count: "exact", head: true })
+      .eq("conversation_id", conversationId);
+    const total = count ?? 0;
+    const { data: history } = total
+      ? await admin
+          .from("ai_messages")
+          .select("role, content")
+          .eq("conversation_id", conversationId)
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(historyStart(total), total - 1)
+      : { data: [] };
     await admin.from("ai_messages").insert({ conversation_id: conversationId, role: "user", content: message });
 
-    const messages = [
-      ...(history ?? []).reverse().map((m) => ({ role: m.role as "user" | "assistant", content: m.content })),
-      { role: "user" as const, content: message },
-    ];
+    const past = (history ?? []).map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+    // Lịch sử phải bắt đầu bằng câu hỏi của người dùng
+    while (past[0]?.role === "assistant") past.shift();
+    const messages = [...past, { role: "user" as const, content: message }];
 
     // Mô hình thực sự trả lời (mô hình dự phòng nếu mô hình chính quá tải)
     let servedModel = conn.model;
     async function* run() {
       try {
-        yield* streamText({ conn, system, messages, minOutputTokens: 8000, onModel: (m) => (servedModel = m) });
+        yield* streamText({
+          conn,
+          system,
+          messages,
+          minOutputTokens: 8000,
+          onModel: (m) => (servedModel = m),
+          cacheKey: `qa-${createHash("sha256").update([...sourceIds].sort().join(",")).digest("hex").slice(0, 24)}`,
+          usage: { task: "chat", userId: user.id, recordingId: sourceIds.length === 1 ? sourceIds[0] : null },
+        });
       } catch (err) {
         await markAuthFailure(conn, err);
         throw err;

@@ -114,9 +114,10 @@ export const PROVIDERS: Record<ProviderKind, ProviderInfo> = {
     defaultBaseUrl: "https://api.deepseek.com",
     keyUrl: "https://platform.deepseek.com/api_keys",
     keyPlaceholder: "sk-…",
-    suggestedModels: ["deepseek-chat", "deepseek-reasoner"],
-    supports: { temperature: true, topP: true, effort: false, verbosity: true },
-    note: "API tương thích OpenAI (Chat Completions).",
+    suggestedModels: ["deepseek-v4-flash", "deepseek-v4-pro"],
+    supports: { temperature: true, topP: true, effort: true, verbosity: true },
+    note:
+      "API tương thích OpenAI (Chat Completions). deepseek-v4-flash rẻ hơn nhiều, đủ cho biên bản/hỏi đáp. Ứng dụng mặc định TẮT chế độ suy luận (thinking) của DeepSeek để tiết kiệm; chọn mức suy luận “Cao” trở lên mới bật.",
   },
   openai_compatible: {
     id: "openai_compatible",
@@ -184,6 +185,25 @@ export const EFFORT_OPTIONS: { value: Effort; label: string }[] = [
   { value: "xhigh", label: "Rất cao" },
   { value: "max", label: "Tối đa — chậm nhất" },
 ];
+
+/** Nhãn mức suy luận trên thẻ kết nối; DeepSeek luôn hiện rõ bật/tắt (tắt là mặc định của ứng dụng). */
+export function effortBadgeLabel(provider: ProviderKind, effort: Effort | null | undefined): string | null {
+  if (provider === "deepseek") {
+    if (effort === "high") return "Suy luận: Cao";
+    if (effort === "xhigh" || effort === "max") return "Suy luận: Tối đa";
+    return "Suy luận: tắt";
+  }
+  if (!effort) return null;
+  return `Suy luận: ${EFFORT_OPTIONS.find((o) => o.value === effort)?.label.split(" — ")[0] ?? effort}`;
+}
+
+/** Giải thích mức suy luận riêng của từng nhà cung cấp (hiển thị dưới ô chọn). */
+export function effortNote(provider: ProviderKind): string | null {
+  if (provider === "deepseek") {
+    return "DeepSeek: Mặc định, Tối thiểu, Thấp, Vừa = tắt suy luận (rẻ, nhanh). Cao = bật suy luận; Rất cao/Tối đa = suy luận tối đa — sinh thêm nhiều token đầu ra, chi phí có thể tăng vài lần.";
+  }
+  return null;
+}
 
 export const VERBOSITY_OPTIONS: { value: Verbosity; label: string }[] = [
   { value: "low", label: "Ngắn gọn" },

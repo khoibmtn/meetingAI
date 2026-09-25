@@ -37,7 +37,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
     // Mô hình thực sự trả lời (mô hình dự phòng nếu mô hình chính quá tải) — ghi đúng vào báo cáo
     let servedModel = conn.model;
-    const stream = streamReport(id, template, conn, { onModel: (m) => (servedModel = m) });
+    const stream = streamReport(id, template, conn, { onModel: (m) => (servedModel = m), userId: user.id });
     return textStreamResponse(stream, {
       headers: { "x-report-id": report.id },
       onDone: async (text) => {

@@ -16,6 +16,7 @@ import {
   baseUrlError,
   claudeAllowsSampling,
   EFFORT_OPTIONS,
+  effortNote,
   PARAM_PRESETS,
   PROVIDER_ORDER,
   PROVIDERS,
@@ -350,6 +351,7 @@ export function ConnectionEditor({
                         ))}
                       </SelectContent>
                     </Select>
+                    {effortNote(provider) ? <p className="text-xs text-muted-foreground">{effortNote(provider)}</p> : null}
                   </div>
                 ) : null}
                 <div className="space-y-1.5">

@@ -47,6 +47,8 @@ const overloads = new Map();
 
 const files = new Map();
 const sessions = new Map();
+/** Các request DeepSeek đã nhận (để kiểm tra thứ tự prompt và tham số suy luận). */
+const deepseekLog = [];
 const failures = new Map();
 let seq = 0;
 const t0 = Date.now();
@@ -333,6 +335,60 @@ const server = http.createServer(async (req, res) => {
         await sleep(20);
       }
       return res.end();
+    }
+
+    // ---- DeepSeek (Chat Completions tương thích OpenAI) ----
+    // Mô phỏng prompt cache của DeepSeek: phần đầu request (theo từng message) giống hệt request trước → "trúng cache"
+    if (req.method === "POST" && p === "/deepseek/chat/completions") {
+      if (req.headers.authorization !== "Bearer mock-deepseek-key") return json(res, 401, { error: { message: "Authentication Fails" } });
+      const body = JSON.parse((await readBody(req)).toString());
+      const prev = deepseekLog.at(-1);
+      let hit = 0;
+      for (let i = 0; prev && i < Math.min(prev.messages.length, body.messages.length); i++) {
+        if (JSON.stringify(prev.messages[i]) !== JSON.stringify(body.messages[i])) break;
+        hit += Math.ceil(JSON.stringify(body.messages[i]).length / 4);
+      }
+      // Request sau có chứa trọn các message của request trước (kể cả câu trả lời) không?
+      const extendsPrev = !!prev && prev.messages.every((m, i) => JSON.stringify(m) === JSON.stringify(body.messages[i]));
+      deepseekLog.push({ ...body, extendsPrev });
+      log(`DeepSeek ${body.stream ? "stream" : "json"}: thinking=${body.thinking?.type ?? "-"}, ${body.messages.length} message, trúng cache ${hit} token`);
+      const prompt = Math.ceil(JSON.stringify(body.messages).length / 4);
+      const text = "Trả lời giả lập từ DeepSeek [R1 00:05].";
+      const usage = {
+        prompt_tokens: prompt,
+        completion_tokens: 12,
+        total_tokens: prompt + 12,
+        prompt_cache_hit_tokens: hit,
+        prompt_cache_miss_tokens: prompt - hit,
+        completion_tokens_details: { reasoning_tokens: body.thinking?.type === "disabled" ? 0 : 900 },
+      };
+      const base = { id: `ds-${deepseekLog.length}`, created: Math.floor(Date.now() / 1000), model: body.model };
+      if (!body.stream) {
+        return json(res, 200, { ...base, object: "chat.completion", choices: [{ index: 0, message: { role: "assistant", content: text }, finish_reason: "stop" }], usage });
+      }
+      res.writeHead(200, { "Content-Type": "text/event-stream" });
+      for (const piece of [text.slice(0, 10), text.slice(10)]) {
+        res.write(`data: ${JSON.stringify({ ...base, object: "chat.completion.chunk", choices: [{ index: 0, delta: { content: piece }, finish_reason: null }] })}\n\n`);
+      }
+      res.write(`data: ${JSON.stringify({ ...base, object: "chat.completion.chunk", choices: [{ index: 0, delta: {}, finish_reason: "stop" }] })}\n\n`);
+      if (body.stream_options?.include_usage) {
+        res.write(`data: ${JSON.stringify({ ...base, object: "chat.completion.chunk", choices: [], usage })}\n\n`);
+      }
+      res.write("data: [DONE]\n\n");
+      return res.end();
+    }
+    if (req.method === "GET" && p === "/deepseek/_log") {
+      return json(
+        res,
+        200,
+        deepseekLog.map((b) => ({
+          thinking: b.thinking ?? null,
+          reasoningEffort: b.reasoning_effort ?? null,
+          includeUsage: b.stream_options?.include_usage ?? false,
+          roles: b.messages.map((m) => m.role),
+          extendsPrev: b.extendsPrev,
+        })),
+      );
     }
 
     // ---- Soniox ----

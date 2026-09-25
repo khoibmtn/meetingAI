@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiJson } from "@/lib/client/api";
 import {
-  EFFORT_OPTIONS,
+  effortBadgeLabel,
   PROVIDERS,
   USAGES,
   VERBOSITY_OPTIONS,
@@ -135,7 +135,7 @@ export function ConnectionsManager({ scope }: { scope: "org" | "user" }) {
                     <Badge variant="secondary">{PROVIDERS[c.provider].label}</Badge>
                     {c.keyHint ? <Badge variant="outline">Khoá {c.keyHint}</Badge> : null}
                     {c.baseUrl ? <Badge variant="outline" className="max-w-full truncate">{c.baseUrl}</Badge> : null}
-                    {c.params.effort ? <Badge variant="muted">Suy luận: {EFFORT_OPTIONS.find((o) => o.value === c.params.effort)?.label.split(" — ")[0]}</Badge> : null}
+                    {effortBadgeLabel(c.provider, c.params.effort) ? <Badge variant="muted">{effortBadgeLabel(c.provider, c.params.effort)}</Badge> : null}
                     {c.params.verbosity ? <Badge variant="muted">{VERBOSITY_OPTIONS.find((o) => o.value === c.params.verbosity)?.label}</Badge> : null}
                     {c.params.temperature != null ? <Badge variant="muted">T={c.params.temperature}</Badge> : null}
                     {c.params.fallbackModel ? (

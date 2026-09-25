@@ -118,17 +118,20 @@ export async function* streamReport(
   recordingId: string,
   template: ReportTemplate,
   conn: ConnectionConfig,
-  opts: { signal?: AbortSignal; onModel?: (model: string) => void } = {},
+  opts: { signal?: AbortSignal; onModel?: (model: string) => void; userId?: string } = {},
 ): AsyncGenerator<string> {
   const { system, user, minOutputTokens } = await buildReportRequest(recordingId, template);
   try {
     yield* streamText({
       conn,
+      // system giống hệt giữa các template của cùng bản ghi → văn bản thứ hai trở đi trúng cache phần transcript
       system,
       messages: [{ role: "user", content: user }],
       minOutputTokens,
       signal: opts.signal,
       onModel: opts.onModel,
+      cacheKey: `rec-${recordingId}`,
+      usage: { task: "report", userId: opts.userId ?? null, recordingId },
     });
   } catch (err) {
     await markAuthFailure(conn, err);
@@ -164,7 +167,10 @@ export async function generateReportToDb(params: {
   let lastSave = Date.now();
   let servedModel = conn.model;
   try {
-    for await (const piece of streamReport(params.recordingId, template, conn, { onModel: (m) => (servedModel = m) })) {
+    for await (const piece of streamReport(params.recordingId, template, conn, {
+      onModel: (m) => (servedModel = m),
+      userId: params.userId,
+    })) {
       content += piece;
       if (Date.now() - lastSave > 5000) {
         lastSave = Date.now();

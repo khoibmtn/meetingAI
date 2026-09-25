@@ -210,6 +210,51 @@ for (let i = 0; i < 20 && !served.startsWith("ready"); i++) {
 check(served === "ready:gemini-2.5-flash", `báo cáo ghi mô hình dự phòng đã trả lời: ${served}`);
 
 // ---------------------------------------------------------------------------
+console.log("\n▶ Ghi nhận chi phí AI (bảng ai_usage) theo tác vụ");
+const usageTasks = sql(`select string_agg(distinct task, ',' order by task) from ai_usage`);
+check(
+  ["report", "speaker_naming", "term_correction", "transcription"].every((t) => usageTasks.split(",").includes(t)),
+  `có ghi nhận các tác vụ: ${usageTasks}`,
+);
+const reportUsage = sql(
+  `select model || ':' || input_tokens || ':' || (output_tokens > 0) from ai_usage where task = 'report' and recording_id = '${REC_GEMINI}' order by id desc limit 1`,
+);
+check(reportUsage === "gemini-2.5-flash:1000:true", `chi phí văn bản ghi đúng mô hình thực đã trả lời và số token: ${reportUsage}`);
+
+// ---------------------------------------------------------------------------
+console.log("\n▶ DeepSeek: tắt suy luận mặc định; hỏi đáp nhiều lượt giữ nguyên phần đầu request (trúng cache)");
+async function ask(message, conversationId) {
+  const r = await fetch(`${APP}/api/ai/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: cookie },
+    body: JSON.stringify({ recordingId: REC_GEMINI, message, conversationId, connectionId: "30000000-0000-0000-0000-0000000000e7" }),
+  });
+  return { ok: r.ok, status: r.status, text: await r.text(), conversationId: r.headers.get("x-conversation-id") };
+}
+const q1 = await ask("Ca bệnh được trình bày là gì?");
+check(q1.ok && q1.text.includes("DeepSeek"), `hỏi đáp qua DeepSeek (${q1.status})`);
+const q2 = await ask("Chỉ định phẫu thuật thế nào?", q1.conversationId);
+check(q2.ok && q2.conversationId === q1.conversationId, "câu hỏi thứ hai trong cùng hội thoại");
+const dsLog = await (await fetch("http://127.0.0.1:4010/deepseek/_log")).json();
+const [d1, d2] = dsLog.slice(-2);
+check(
+  d1?.thinking?.type === "disabled" && d2?.thinking?.type === "disabled" && !d1?.reasoningEffort,
+  `thinking TẮT dù kết nối để mức suy luận "Vừa": ${JSON.stringify(d1?.thinking)}`,
+);
+check(d1?.includeUsage && d2?.includeUsage, "yêu cầu DeepSeek trả usage (số token trúng cache) khi stream");
+check(d2?.extendsPrev && d2?.roles.join(",") === "system,user,assistant,user", `lượt 2 là phần mở rộng nguyên vẹn của lượt 1 (${d2?.roles.join(",")})`);
+const dsUsage = sql(
+  `select (cached_input_tokens > 0 and input_tokens > cached_input_tokens and reasoning_tokens = 0)::text from ai_usage where task = 'chat' and provider = 'deepseek' order by id desc limit 1`,
+);
+check(dsUsage === "true", "ghi nhận token trúng cache của DeepSeek, không có token suy luận");
+
+const summary = await api("GET", "/api/admin/ai-usage?days=1");
+check(
+  summary.total?.calls > 0 && summary.rows?.some((r) => r.task === "report" && r.model === "gemini-2.5-flash"),
+  `API tổng hợp chi phí cho quản trị viên: ${summary.total?.calls} lượt gọi`,
+);
+
+// ---------------------------------------------------------------------------
 console.log("\n▶ Kiểm tra kết nối khi Gemini quá tải: báo lỗi tạm thời, không khoá kết nối");
 const tested = await api("POST", "/api/ai/connections/test", {
   id: "30000000-0000-0000-0000-0000000000e5",

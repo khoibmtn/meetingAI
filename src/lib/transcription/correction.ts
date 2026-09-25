@@ -1,5 +1,5 @@
 import "server-only";
-import { generateJson, type ConnectionConfig } from "@/lib/ai";
+import { generateJson, type ConnectionConfig, type UsageContext } from "@/lib/ai";
 import { stripDiacritics } from "@/lib/utils";
 import { formatGlossary } from "./prompts";
 import type { GlossaryEntry } from "./glossary-defaults";
@@ -78,6 +78,7 @@ export async function correctTerms(opts: {
   conn: ConnectionConfig;
   contextLine: string;
   deadline: number;
+  usage?: UsageContext;
 }): Promise<{ segments: Segment[]; applied: number }> {
   const glossaryText = formatGlossary(opts.glossary, 300);
   const terms = new Set(opts.glossary.map((g) => stripDiacritics(g.term.toLowerCase())));
@@ -96,6 +97,7 @@ export async function correctTerms(opts: {
         schema: SCHEMA as unknown as Record<string, unknown>,
         schemaName: "edits",
         overrides: { effort: opts.conn.params.effort ?? "low" },
+        usage: opts.usage,
         messages: [
           {
             role: "user",

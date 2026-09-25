@@ -30,6 +30,7 @@ import {
 } from "@/lib/audio/ffmpeg";
 import { generateJson, type ConnectionConfig } from "@/lib/ai";
 import { getConnectionConfig, markAuthFailure, requireConnection, resolveConnection } from "@/lib/ai/connections";
+import { recordUsage } from "@/lib/ai/usage";
 import { AiError, fallbackModelFor, GEMINI_OVERLOADED, GEMINI_RATE_LIMITED, isCapacityError } from "@/lib/ai/types";
 import {
   chunkModel,
@@ -616,6 +617,9 @@ async function stepChunk(admin: Admin, jobId: string, idx?: number) {
       throw err;
     }
     const { result, finishReason } = callResult;
+    if (callResult.usage) {
+      await recordUsage(conn, { task: "transcription", userId: job.created_by, recordingId: recording.id }, [callResult.usage]);
+    }
     // Mô hình lỡ phiên âm cả giọng mẫu → bỏ các câu trùng lời giọng mẫu
     const echo = dropVoiceRefEchoes(result.segments, usedRefs.length ? voiceRefs.map((r) => r.text) : []);
     result.segments = echo.kept;
@@ -959,13 +963,14 @@ async function stepFinalize(admin: Admin, jobId: string) {
               windowEnd: rel.end,
             });
             const fallback = fallbackModelFor(conn);
-            const { result } = await transcribeWithGemini(ai, conn, gapFile, gapPrompt).catch((err) => {
+            const { result, usage } = await transcribeWithGemini(ai, conn, gapFile, gapPrompt).catch((err) => {
               // Mô hình chính quá tải → quét lại bằng mô hình dự phòng
               if (fallback && isCapacityError(err)) {
                 return transcribeWithGemini(ai, { ...conn, model: fallback }, gapFile, gapPrompt);
               }
               throw err;
             });
+            if (usage) await recordUsage(conn, { task: "transcription", userId: job.created_by, recordingId: job.recording_id }, [usage]);
             // Lượt quét nhận danh sách người nói TOÀN CỤC → giữ nguyên khoá toàn cục; khoá khác ánh xạ theo đoạn
             const mapGap = (local: string) => (globalKeys.has(local) ? local : mapFor(w.plan.idx)(local));
             const drafts = toAbsoluteSegments(w.plan, result, mapGap).filter(
@@ -1012,6 +1017,7 @@ async function stepFinalize(admin: Admin, jobId: string) {
         conn: corrConn,
         contextLine: `Cuộc họp: ${ctx.title} (${CATEGORY_LABELS[ctx.category] ?? ctx.category})`,
         deadline: deadline - 45_000,
+        usage: { task: "term_correction", userId: job.created_by, recordingId: job.recording_id },
       });
       segments = corrected.segments;
       if (corrected.applied) warnings.push(`AI đã hiệu đính ${corrected.applied} thuật ngữ (đánh dấu trong transcript).`);
@@ -1033,6 +1039,7 @@ async function stepFinalize(admin: Admin, jobId: string) {
           schema: SPEAKER_NAMING_SCHEMA as unknown as Record<string, unknown>,
           schemaName: "speaker_naming",
           overrides: { effort: namingConn.params.effort ?? "medium" },
+          usage: { task: "speaker_naming", userId: job.created_by, recordingId: job.recording_id },
           messages: [{ role: "user", content: buildSpeakerNamingInput(ctx, speakers, segments, talk) }],
         });
         const before = speakers;

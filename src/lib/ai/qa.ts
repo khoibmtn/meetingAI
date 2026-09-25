@@ -14,6 +14,22 @@ Nguyên tắc:
 - Giữ nguyên chính xác số liệu, liều thuốc, thuật ngữ. Nêu rõ ai nói gì khi phù hợp.
 - Trả lời bằng tiếng Việt, định dạng Markdown gọn gàng (gạch đầu dòng, bảng khi so sánh).`;
 
+/** Số tin nhắn lịch sử tối đa gửi kèm câu hỏi. */
+export const QA_HISTORY_MAX = 24;
+/** Khi vượt ngưỡng, bỏ cả một khối tin cũ (không trượt từng tin). */
+export const QA_HISTORY_STEP = 12;
+
+/**
+ * Vị trí bắt đầu phần lịch sử gửi kèm, trên tổng n tin nhắn đã có của hội thoại.
+ * Cửa sổ trượt từng tin (luôn lấy N tin cuối) làm phần đầu request đổi ở MỌI câu hỏi → mất cache cả phần
+ * lịch sử. Cắt theo bậc: điểm bắt đầu chỉ nhảy mỗi QA_HISTORY_STEP tin; giữa hai lần nhảy, request sau là
+ * phần mở rộng của request trước → nhà cung cấp dùng lại cache (DeepSeek, OpenAI, Claude, Gemini).
+ */
+export function historyStart(n: number, max = QA_HISTORY_MAX, step = QA_HISTORY_STEP): number {
+  if (n <= max) return 0;
+  return Math.floor((n - (max - step)) / step) * step;
+}
+
 /** Ước lượng giới hạn ký tự ngữ cảnh theo nhà cung cấp (≈ 3 ký tự/token cho tiếng Việt). */
 function charBudget(provider: ProviderKind): number {
   if (provider === "deepseek" || provider === "openai_compatible") return 280_000; // ~ 90k token

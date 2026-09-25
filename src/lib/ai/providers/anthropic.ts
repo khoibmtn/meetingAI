@@ -1,7 +1,7 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
 import { claudeAllowsSampling, verbosityInstruction } from "../catalog";
-import { AiError, effectiveParams, type ConnectionConfig, type JsonRequest, type TextRequest } from "../types";
+import { AiError, effectiveParams, tokenCount, type AiUsage, type ConnectionConfig, type JsonRequest, type TextRequest } from "../types";
 
 function client(conn: Pick<ConnectionConfig, "apiKey" | "baseUrl">) {
   const baseURL = conn.baseUrl?.trim();
@@ -21,6 +21,26 @@ function mapError(err: unknown): AiError {
   }
   if (err instanceof AiError) return err;
   return new AiError(err instanceof Error ? err.message : String(err));
+}
+
+function isOfficialAnthropic(baseUrl?: string | null): boolean {
+  const b = baseUrl?.trim().replace(/\/+$/, "");
+  return !b || b === "https://api.anthropic.com";
+}
+
+/** Usage Claude: input_tokens chỉ là phần KHÔNG cache → tổng đầu vào = input + đọc cache + ghi cache. */
+export function anthropicUsage(model: string, u: Anthropic.Beta.BetaUsage | undefined): AiUsage | null {
+  if (!u) return null;
+  const read = tokenCount(u.cache_read_input_tokens);
+  const write = tokenCount(u.cache_creation_input_tokens);
+  return {
+    model,
+    inputTokens: tokenCount(u.input_tokens) + read + write,
+    cachedInputTokens: read,
+    cacheWriteTokens: write,
+    outputTokens: tokenCount(u.output_tokens),
+    reasoningTokens: 0,
+  };
 }
 
 /**
@@ -43,6 +63,10 @@ function buildParams(req: TextRequest, fallbackMax: number) {
       // Transcript dài nằm trong system → đánh dấu cache để các câu hỏi sau rẻ hơn.
       { type: "text" as const, text: hint ? `${req.system}\n\n${hint}` : req.system, cache_control: { type: "ephemeral" as const } },
     ],
+    // Hội thoại nhiều lượt (hỏi đáp): cache tự động phần lịch sử đang dài dần — mỗi câu hỏi sau chỉ trả giá
+    // đầy đủ cho phần mới. Một lượt (soạn văn bản): chỉ cache system, phần yêu cầu khác nhau mỗi lần.
+    // (chỉ với API gốc — gateway tương thích Anthropic có thể không nhận trường này)
+    ...(req.messages.length > 1 && isOfficialAnthropic(req.conn.baseUrl) ? { cache_control: { type: "ephemeral" as const } } : {}),
     ...(legacy ? {} : { thinking: { type: "adaptive" as const }, output_config: { effort } }),
     ...(claudeAllowsSampling(model) && p.temperature != null ? { temperature: p.temperature } : {}),
     ...(claudeAllowsSampling(model) && p.topP != null ? { top_p: p.topP } : {}),
@@ -65,6 +89,8 @@ export async function* anthropicStreamText(req: TextRequest): AsyncGenerator<str
       if (event.type === "content_block_delta" && event.delta.type === "text_delta") yield event.delta.text;
     }
     const final = await stream.finalMessage();
+    const usage = anthropicUsage(final.model || req.conn.model, final.usage);
+    if (usage) req.onUsage?.(usage);
     if (final.stop_reason === "refusal") throw new AiError("Claude từ chối yêu cầu này", "refusal");
   } catch (err) {
     throw mapError(err);
@@ -85,6 +111,8 @@ export async function anthropicGenerateJson<T>(req: JsonRequest): Promise<T> {
       { signal: req.signal },
     );
     const final = await stream.finalMessage();
+    const usage = anthropicUsage(final.model || req.conn.model, final.usage);
+    if (usage) req.onUsage?.(usage);
     if (final.stop_reason === "refusal") throw new AiError("Claude từ chối yêu cầu này", "refusal");
     const text = final.content
       .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")

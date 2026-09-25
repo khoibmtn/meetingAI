@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { UserAvatar } from "@/components/ui/avatar";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ConnectionsManager } from "@/components/ai/connections-manager";
+import { UsageCard } from "@/components/ai/usage-card";
 import { useProfile } from "@/components/profile-context";
 import { apiJson } from "@/lib/client/api";
 import { formatBytes } from "@/lib/utils";
@@ -38,8 +39,9 @@ export function AdminTabs({ initialTab, users, driveNotice }: { initialTab: stri
         <TabsTrigger value="users">Người dùng</TabsTrigger>
         <TabsTrigger value="check">Kiểm tra</TabsTrigger>
       </TabsList>
-      <TabsContent value="ai" className="pt-4">
+      <TabsContent value="ai" className="space-y-4 pt-4">
         <ConnectionsManager scope="org" />
+        <UsageCard />
       </TabsContent>
       <TabsContent value="storage" className="pt-4">
         <StorageCard />

@@ -1,7 +1,7 @@
 import "server-only";
 import { FileState, type GoogleGenAI } from "@google/genai";
-import { geminiClientFor, geminiThinking, mapGeminiError } from "@/lib/ai/providers/gemini";
-import type { ConnectionConfig } from "@/lib/ai/types";
+import { geminiClientFor, geminiThinking, geminiUsage, mapGeminiError } from "@/lib/ai/providers/gemini";
+import type { AiUsage, ConnectionConfig } from "@/lib/ai/types";
 import { parseJsonLoose } from "@/lib/json-repair";
 import { sleep } from "@/lib/utils";
 import { TRANSCRIPTION_SCHEMA, TRANSCRIPTION_SYSTEM_PROMPT } from "./prompts";
@@ -71,7 +71,7 @@ export interface TranscribeCallResult {
   result: RawChunkResult;
   repaired: boolean;
   finishReason?: string;
-  usage?: { inputTokens?: number; outputTokens?: number };
+  usage?: AiUsage | null;
 }
 
 /**
@@ -111,12 +111,7 @@ export async function transcribeWithGemini(
       text += chunk.text ?? "";
       const c = chunk.candidates?.[0];
       if (c?.finishReason) finishReason = c.finishReason;
-      if (chunk.usageMetadata) {
-        usage = {
-          inputTokens: chunk.usageMetadata.promptTokenCount,
-          outputTokens: chunk.usageMetadata.candidatesTokenCount,
-        };
-      }
+      if (chunk.usageMetadata) usage = geminiUsage(model, chunk.usageMetadata);
     }
   } catch (err) {
     throw mapGeminiError(err);

@@ -1,5 +1,12 @@
 import "server-only";
-import { ApiError, GoogleGenAI, ThinkingLevel, type Content, type GenerateContentConfig } from "@google/genai";
+import {
+  ApiError,
+  GoogleGenAI,
+  ThinkingLevel,
+  type Content,
+  type GenerateContentConfig,
+  type GenerateContentResponseUsageMetadata,
+} from "@google/genai";
 import { verbosityInstruction, type Effort } from "../catalog";
 import {
   AiError,
@@ -9,6 +16,8 @@ import {
   GEMINI_OVERLOADED,
   GEMINI_RATE_LIMITED,
   isCapacityError,
+  tokenCount,
+  type AiUsage,
   type ConnectionConfig,
   type JsonRequest,
   type TextRequest,
@@ -66,6 +75,20 @@ export function geminiConfig(req: TextRequest, fallbackMax: number): GenerateCon
   };
 }
 
+/** Usage Gemini: đầu ra = câu trả lời + phần suy nghĩ (thoughts); cachedContentTokenCount = phần trúng cache ngầm định. */
+export function geminiUsage(model: string, u: GenerateContentResponseUsageMetadata | undefined): AiUsage | null {
+  if (!u) return null;
+  const thoughts = tokenCount(u.thoughtsTokenCount);
+  return {
+    model,
+    inputTokens: tokenCount(u.promptTokenCount),
+    cachedInputTokens: tokenCount(u.cachedContentTokenCount),
+    cacheWriteTokens: 0,
+    outputTokens: tokenCount(u.candidatesTokenCount) + thoughts,
+    reasoningTokens: thoughts,
+  };
+}
+
 export function mapGeminiError(err: unknown): AiError {
   if (err instanceof ApiError) {
     const status = err.status;
@@ -111,6 +134,7 @@ export async function* geminiStreamText(req: TextRequest): AsyncGenerator<string
         contents: toContents(r),
         config: geminiConfig(r, 32768),
       });
+      let usage: GenerateContentResponseUsageMetadata | undefined;
       for await (const chunk of stream) {
         const text = chunk.text;
         if (text) {
@@ -122,7 +146,10 @@ export async function* geminiStreamText(req: TextRequest): AsyncGenerator<string
         if (reason === "SAFETY" || reason === "PROHIBITED_CONTENT") {
           throw new AiError("Gemini đã chặn nội dung vì lý do an toàn", "refusal");
         }
+        if (chunk.usageMetadata) usage = chunk.usageMetadata;
       }
+      const u = geminiUsage(r.conn.model, usage);
+      if (u) req.onUsage?.(u);
       return;
     } catch (err) {
       const mapped = mapGeminiError(err);
@@ -148,7 +175,13 @@ export async function geminiGenerateJson<T>(req: JsonRequest): Promise<T> {
           responseJsonSchema: r.schema,
         },
       });
-      for await (const chunk of stream) text += chunk.text ?? "";
+      let usage: GenerateContentResponseUsageMetadata | undefined;
+      for await (const chunk of stream) {
+        text += chunk.text ?? "";
+        if (chunk.usageMetadata) usage = chunk.usageMetadata;
+      }
+      const u = geminiUsage(r.conn.model, usage);
+      if (u) req.onUsage?.(u);
     } catch (err) {
       const mapped = mapGeminiError(err);
       if (isCapacityError(mapped) && i < attempts.length - 1) continue;

@@ -1,6 +1,6 @@
 import "server-only";
 import OpenAI from "openai";
-import { AiError, effectiveParams, type ConnectionConfig, type JsonRequest, type TextRequest } from "../types";
+import { AiError, effectiveParams, tokenCount, type AiUsage, type ConnectionConfig, type JsonRequest, type TextRequest } from "../types";
 
 export function openaiClientFor(conn: Pick<ConnectionConfig, "apiKey" | "baseUrl">, defaultBase?: string) {
   const baseURL = conn.baseUrl?.trim() || defaultBase || undefined;
@@ -20,6 +20,24 @@ export function mapOpenAIError(err: unknown, label = "OpenAI"): AiError {
   return new AiError(err instanceof Error ? err.message : String(err));
 }
 
+function isOfficialOpenAI(baseUrl?: string | null): boolean {
+  const b = baseUrl?.trim().replace(/\/+$/, "");
+  return !b || b === "https://api.openai.com/v1";
+}
+
+/** Usage Responses API: input_tokens gồm cả phần cache (input_tokens_details.cached_tokens). */
+export function openaiUsage(model: string, u: OpenAI.Responses.ResponseUsage | null | undefined): AiUsage | null {
+  if (!u) return null;
+  return {
+    model,
+    inputTokens: tokenCount(u.input_tokens),
+    cachedInputTokens: tokenCount(u.input_tokens_details?.cached_tokens),
+    cacheWriteTokens: 0,
+    outputTokens: tokenCount(u.output_tokens),
+    reasoningTokens: tokenCount(u.output_tokens_details?.reasoning_tokens),
+  };
+}
+
 function openaiEffort(e?: string | null) {
   if (!e) return undefined;
   return (e === "max" ? "xhigh" : e) as "minimal" | "low" | "medium" | "high";
@@ -36,6 +54,8 @@ function responsesBody(req: TextRequest, fallbackMax: number) {
     ...(p.topP != null ? { top_p: p.topP } : {}),
     ...(p.effort ? { reasoning: { effort: openaiEffort(p.effort) } } : {}),
     ...(p.verbosity ? { text: { verbosity: p.verbosity } } : {}),
+    // Gom các lời gọi cùng phần đầu (cùng bản ghi) về một bộ nhớ đệm → tỉ lệ trúng cache cao hơn
+    ...(req.cacheKey && isOfficialOpenAI(req.conn.baseUrl) ? { prompt_cache_key: req.cacheKey } : {}),
     ...(p.extra ?? {}),
   };
 }
@@ -53,6 +73,9 @@ export async function* openaiStreamText(req: TextRequest): AsyncGenerator<string
       else if (event.type === "error") throw new AiError(`OpenAI lỗi: ${event.message}`, "unavailable", true);
       else if (event.type === "response.failed") {
         throw new AiError(`OpenAI lỗi: ${event.response.error?.message ?? "không rõ"}`, "unavailable", true);
+      } else if (event.type === "response.completed") {
+        const usage = openaiUsage(event.response.model || req.conn.model, event.response.usage);
+        if (usage) req.onUsage?.(usage);
       }
     }
   } catch (err) {
@@ -73,6 +96,8 @@ export async function openaiGenerateJson<T>(req: JsonRequest): Promise<T> {
       } as OpenAI.Responses.ResponseCreateParamsNonStreaming,
       { signal: req.signal },
     );
+    const usage = openaiUsage(res.model || req.conn.model, res.usage);
+    if (usage) req.onUsage?.(usage);
     return JSON.parse(res.output_text) as T;
   } catch (err) {
     throw mapOpenAIError(err);

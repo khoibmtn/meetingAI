@@ -74,7 +74,7 @@ funcs = q("""
    where n.nspname = 'public' and p.prokind = 'f'
      and p.proname in ('get_group_invite','join_group_by_code','regenerate_invite_code','get_or_create_dm',
                        'mark_channel_read','my_channels','search_recordings','claim_transcription_chunk',
-                       'claim_job','is_admin','can_view_recording','can_edit_recording')
+                       'claim_job','is_admin','can_view_recording','can_edit_recording','ai_usage_summary')
    order by p.proname
 """)
 
@@ -155,7 +155,12 @@ for t, cs in tables.items():
         for c in cs:
             typ = ts_type(c["data_type"], c["udt_name"])
             null = " | null" if c["is_nullable"] == "YES" else ""
-            optional = kind == "Update" or c["is_nullable"] == "YES" or c["column_default"] is not None
+            optional = (
+                kind == "Update"
+                or c["is_nullable"] == "YES"
+                or c["column_default"] is not None
+                or c["is_identity"] == "YES"
+            )
             w(f"          {c['column_name']}{'?' if optional else ''}: {typ}{null};")
         w("        };")
     w("        Relationships: [")

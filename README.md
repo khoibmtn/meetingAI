@@ -61,6 +61,10 @@ Có thể thêm template tuỳ chỉnh theo cá nhân, nhóm hoặc đơn vị. 
   - Gemini: khai báo **mô hình dự phòng khi quá tải** (một mô hình khác mô hình chính, chọn trong "Tải danh sách mô hình"; nút "Kiểm tra" thử cả mô hình dự phòng) — mô hình mới thường hay báo 503 "high demand"
   - có nút **kiểm tra kết nối** và **lưu**
 - **Mỗi vị trí dùng AI chọn mô hình riêng** (phiên âm, nhận diện tên, hiệu đính, báo cáo, hỏi đáp), trong số các kết nối đã kiểm tra thành công.
+- **Tiết kiệm chi phí:**
+  - DeepSeek V4: ứng dụng tắt chế độ suy luận (thinking) theo mặc định — API DeepSeek bật sẵn ở mức cao, sinh thêm rất nhiều token đầu ra; chọn mức suy luận "Cao" trong kết nối nếu cần.
+  - Prompt được sắp để tận dụng prompt caching của mọi nhà cung cấp: phần transcript dùng chung đứng đầu, yêu cầu thay đổi đứng cuối; lịch sử hỏi đáp cắt theo bậc.
+  - **Quản trị → Kết nối AI → Chi phí AI**: token đã dùng theo mô hình và tác vụ, tỉ lệ trúng cache, token suy luận.
 
 ## Triển khai
 
@@ -74,7 +78,7 @@ Cần có:
 
 1. Tạo project. Vào **Project Settings → API Keys**, lấy **publishable key** (`sb_publishable_…`) và **secret key** (`sb_secret_…`). Khoá cũ anon/service_role vẫn dùng được.
 2. Chạy migration: mở **SQL Editor**, lần lượt dán nội dung từng tệp trong [`supabase/migrations/`](supabase/migrations) (theo thứ tự tên tệp) rồi bấm **Run**. Nếu dùng Supabase CLI thì chạy `supabase link` rồi `supabase db push`.
-   - Khi cập nhật ứng dụng, chỉ cần chạy thêm các tệp migration mới (vd `20260926000000_temp_audio.sql` tạo bucket lưu tạm `audio-temp`). **Quản trị → Kiểm tra** báo mục nào còn thiếu.
+   - Khi cập nhật ứng dụng, chỉ cần chạy thêm các tệp migration mới (vd `20260926000000_temp_audio.sql` tạo bucket lưu tạm `audio-temp`, `20260928000000_ai_usage.sql` tạo bảng ghi nhận chi phí AI). **Quản trị → Kiểm tra** báo mục nào còn thiếu.
    - Có thể làm bước này sau khi deploy: nếu CSDL chưa khởi tạo, ứng dụng tự mở trang **Cài đặt ban đầu**, có nút sao chép SQL và liên kết thẳng tới SQL Editor.
    - Tài khoản đã đăng ký trước khi chạy migration vẫn được tạo hồ sơ; người đăng ký sớm nhất là quản trị viên.
    - Migration tạo bảng, phân quyền RLS và bật Realtime cho chat, tiến độ phiên âm và danh sách văn bản tổng hợp.

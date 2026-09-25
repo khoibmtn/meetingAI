@@ -159,7 +159,14 @@ Trạng thái tác vụ: `queued → preparing → transcribing → finalizing �
     - prompt caching cho system prompt
     - `fallbacks: "default"` cho Opus 5 / Fable
   - DeepSeek và API tương thích OpenAI: Chat Completions (JSON qua `response_format`).
+  - DeepSeek V4 (`deepseek-v4-flash`, `deepseek-v4-pro`) mặc định **bật suy luận (thinking) mức high** ở phía API. Ứng dụng luôn gửi `thinking: {type: "disabled"}`, trừ khi kết nối chọn mức suy luận Cao (→ `reasoning_effort: "high"`) hoặc Rất cao/Tối đa (→ `"max"`). Máy chủ không nhận tham số này (gateway/mô hình cũ) → tự gửi lại không kèm.
 - **Danh sách mô hình** lấy trực tiếp từ API của nhà cung cấp. Người dùng vẫn nhập tay được mô hình không có trong danh sách.
+- **Prompt caching** (nguyên tắc rút từ [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness): nhà cung cấp chỉ dùng lại cache cho phần **đầu** request giống hệt từng byte):
+  - Phần ổn định (hướng dẫn, thông tin đơn vị/cuộc họp, từ điển, transcript) nằm trong `system`, đứng đầu; phần thay đổi (yêu cầu template, câu hỏi) nằm cuối trong `messages`. Không chèn thời gian hay dữ liệu theo lần gọi vào `system`.
+  - Các template của cùng một bản ghi dùng chung `system` → văn bản thứ hai trở đi trúng cache phần transcript.
+  - Hỏi đáp: lịch sử gửi kèm cắt **theo bậc** (`historyStart`: tối đa 24 tin, khi vượt thì bỏ một khối 12 tin) thay vì trượt từng tin, để mỗi câu hỏi là phần mở rộng của request trước.
+  - DeepSeek, Gemini (cache ngầm định), OpenAI: tự động theo prefix; OpenAI được gửi thêm `prompt_cache_key` theo bản ghi. Claude: `cache_control` trên `system` và thêm `cache_control` cấp request cho hội thoại nhiều lượt.
+- **Ghi nhận chi phí** (`ai_usage`, migration `20260928000000_ai_usage.sql`): mỗi lần gọi AI (phiên âm, đặt tên người nói, hiệu đính, văn bản, hỏi đáp) ghi token đầu vào, phần đọc từ cache, phần ghi cache, đầu ra và phần suy luận — theo số liệu nhà cung cấp trả về. **Quản trị → Kết nối AI → Chi phí AI** tổng hợp theo mô hình/tác vụ (hàm SQL `ai_usage_summary`, chỉ service role gọi được). Bảng chỉ server truy cập (RLS không có policy).
 
 ## 5. Văn bản tổng hợp và hỏi đáp
 

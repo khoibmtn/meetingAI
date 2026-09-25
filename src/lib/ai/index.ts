@@ -1,14 +1,15 @@
 import "server-only";
 import { PROVIDERS, type ProviderKind } from "./catalog";
-import { AiError, fallbackModelFor, type ConnectionConfig, type JsonRequest, type TextRequest } from "./types";
+import { AiError, fallbackModelFor, type AiUsage, type ConnectionConfig, type JsonRequest, type TextRequest } from "./types";
 import { geminiGenerateJson, geminiListModels, geminiStreamText } from "./providers/gemini";
 import { openaiGenerateJson, openaiListModels, openaiStreamText } from "./providers/openai";
 import { anthropicGenerateJson, anthropicListModels, anthropicStreamText } from "./providers/anthropic";
 import { compatGenerateJson, compatStreamText } from "./providers/openai-compatible";
+import { recordUsage } from "./usage";
 import { sleep } from "@/lib/utils";
 
 export { AiError } from "./types";
-export type { ChatTurn, TextRequest, JsonRequest, ConnectionConfig } from "./types";
+export type { AiTask, AiUsage, ChatTurn, TextRequest, JsonRequest, ConnectionConfig, UsageContext } from "./types";
 
 function assertLlm(provider: ProviderKind) {
   if (PROVIDERS[provider].kind !== "llm") {
@@ -16,8 +17,28 @@ function assertLlm(provider: ProviderKind) {
   }
 }
 
-export function streamText(req: TextRequest): AsyncGenerator<string> {
-  assertLlm(req.conn.provider);
+/**
+ * Gom usage nhà cung cấp báo về để ghi vào bảng ai_usage khi lời gọi kết thúc (chờ ghi xong trước khi trả
+ * kết quả — trên serverless, tác vụ nền sau khi trả lời có thể bị cắt).
+ */
+function meter<T extends TextRequest>(req: T): { req: T; flush: () => Promise<void> } {
+  const pending: AiUsage[] = [];
+  return {
+    req: {
+      ...req,
+      onUsage: (u: AiUsage) => {
+        req.onUsage?.(u);
+        if (req.usage) pending.push(u);
+      },
+    },
+    flush: async () => {
+      const items = pending.splice(0);
+      if (req.usage && items.length) await recordUsage(req.conn, req.usage, items);
+    },
+  };
+}
+
+function providerStream(req: TextRequest): AsyncGenerator<string> {
   switch (req.conn.provider) {
     case "gemini":
       return geminiStreamText(req);
@@ -27,6 +48,16 @@ export function streamText(req: TextRequest): AsyncGenerator<string> {
       return anthropicStreamText(req);
     default:
       return compatStreamText(req);
+  }
+}
+
+export async function* streamText(req: TextRequest): AsyncGenerator<string> {
+  assertLlm(req.conn.provider);
+  const m = meter(req);
+  try {
+    yield* providerStream(m.req);
+  } finally {
+    await m.flush();
   }
 }
 
@@ -40,23 +71,27 @@ export async function generateText(req: TextRequest): Promise<string> {
 export async function generateJson<T>(req: JsonRequest, retries = 2): Promise<T> {
   assertLlm(req.conn.provider);
   let lastErr: unknown;
+  const m = meter(req);
   for (let attempt = 0; attempt <= retries; attempt++) {
     try {
       switch (req.conn.provider) {
         case "gemini":
-          return await geminiGenerateJson<T>(req);
+          return await geminiGenerateJson<T>(m.req);
         case "openai":
-          return await openaiGenerateJson<T>(req);
+          return await openaiGenerateJson<T>(m.req);
         case "anthropic":
-          return await anthropicGenerateJson<T>(req);
+          return await anthropicGenerateJson<T>(m.req);
         default:
-          return await compatGenerateJson<T>(req);
+          return await compatGenerateJson<T>(m.req);
       }
     } catch (err) {
       lastErr = err;
       const retryable = err instanceof SyntaxError || (err instanceof AiError && err.retryable);
       if (!retryable || attempt === retries) break;
       await sleep(1500 * 2 ** attempt);
+    } finally {
+      // Mỗi lần thử đều bị tính phí (kể cả JSON hỏng) → ghi nhận từng lần
+      await m.flush();
     }
   }
   throw lastErr;
