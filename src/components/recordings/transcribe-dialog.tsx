@@ -37,6 +37,7 @@ export function TranscribeDialog({
   const [normalize, setNormalize] = useState("gain");
   const [gapFill, setGapFill] = useState(true);
   const [nameSpeakers, setNameSpeakers] = useState(true);
+  const [voiceRefs, setVoiceRefs] = useState(true);
   const [correctTermsChoice, setCorrectTerms] = useState<boolean | null>(null);
   const [autoReport, setAutoReport] = useState("");
   const [busy, setBusy] = useState(false);
@@ -55,6 +56,7 @@ export function TranscribeDialog({
           gapFill,
           nameSpeakers,
           correctTerms,
+          voiceRefs: !isSoniox && voiceRefs,
           autoReportTemplate: autoReport || null,
         },
       });
@@ -124,6 +126,9 @@ export function TranscribeDialog({
             ) : null}
           </div>
           {!isSoniox ? <Row label="Quét bổ sung khoảng bị bỏ sót" checked={gapFill} onChange={setGapFill} /> : null}
+          {!isSoniox ? (
+            <Row label="Phân vai bằng giọng mẫu (chính xác hơn, chậm hơn)" checked={voiceRefs} onChange={setVoiceRefs} />
+          ) : null}
           <Row label="Nhận diện tên người nói" checked={nameSpeakers} onChange={setNameSpeakers} />
           <Row label="Hiệu đính thuật ngữ bằng AI" checked={correctTerms} onChange={setCorrectTerms} />
           <div className="space-y-1.5">

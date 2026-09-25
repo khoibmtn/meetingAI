@@ -47,6 +47,26 @@ export async function deleteGeminiFile(ai: GoogleGenAI, name: string) {
   }
 }
 
+/** Giọng mẫu gửi kèm: nhãn (ID + tên/vai trò) và tệp âm thanh ngắn trên Files API. */
+export interface VoiceRefPart {
+  label: string;
+  file: GeminiFileRef;
+}
+
+/** Tệp chính đứng ĐẦU (mốc thời gian tính trên tệp này), sau đó các giọng mẫu có nhãn, cuối cùng là lời dặn. */
+export function buildTranscribeParts(file: GeminiFileRef, userPrompt: string, refs: VoiceRefPart[] = []) {
+  return [
+    { fileData: { fileUri: file.uri, mimeType: file.mimeType } },
+    ...(refs.length
+      ? [
+          { text: "GIỌNG MẪU của người nói đã xác định — chỉ để so giọng, KHÔNG phiên âm:" },
+          ...refs.flatMap((r) => [{ text: `Giọng mẫu ${r.label}:` }, { fileData: { fileUri: r.file.uri, mimeType: r.file.mimeType } }]),
+        ]
+      : []),
+    { text: userPrompt },
+  ];
+}
+
 export interface TranscribeCallResult {
   result: RawChunkResult;
   repaired: boolean;
@@ -63,6 +83,7 @@ export async function transcribeWithGemini(
   conn: Pick<ConnectionConfig, "model" | "params">,
   file: GeminiFileRef,
   userPrompt: string,
+  refs: VoiceRefPart[] = [],
 ): Promise<TranscribeCallResult> {
   const model = conn.model;
   const p = conn.params ?? {};
@@ -72,12 +93,7 @@ export async function transcribeWithGemini(
   try {
     const stream = await ai.models.generateContentStream({
       model,
-      contents: [
-        {
-          role: "user",
-          parts: [{ fileData: { fileUri: file.uri, mimeType: file.mimeType } }, { text: userPrompt }],
-        },
-      ],
+      contents: [{ role: "user", parts: buildTranscribeParts(file, userPrompt, refs) }],
       config: {
         systemInstruction: TRANSCRIPTION_SYSTEM_PROMPT,
         responseMimeType: "application/json",

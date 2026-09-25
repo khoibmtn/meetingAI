@@ -12,7 +12,9 @@
 //   FAIL_COUNT="1:500:3" → đoạn idx 1 lỗi liên tiếp 3 lần
 //   OVERLOAD="gemini-3.8-flash:0:2" → mô hình đó, đoạn idx 0: 2 lần gọi đầu trả 503 "high demand" (kiểm tra mô hình dự phòng)
 //   OVERLOAD_MODELS="gemini-9-overloaded" → mọi lời gọi tới các mô hình này trả 503 "high demand"
-//   FILE_GONE="1"        → lần gọi đầu của đoạn idx 1 trả 403 "không truy cập được File" (tệp hết hạn/khoá khác)
+//   FILE_GONE="1"        → tệp của đoạn idx 1 "mất" ở lần gọi đầu: mọi lời gọi dùng tệp đó trả 403 "không truy cập được File"
+//                          cho tới khi đoạn được tải lên lại (tệp mới) — như tệp hết hạn / khoá dự án khác
+//   ECHO_REFS="1"        → khi có giọng mẫu gửi kèm, "lỡ" phiên âm cả giọng mẫu thành câu ở cuối (kiểm tra bộ lọc)
 import http from "node:http";
 import fs from "node:fs";
 
@@ -38,7 +40,9 @@ const OVERLOAD = (process.env.OVERLOAD ?? "")
   });
 const OVERLOAD_MODELS = (process.env.OVERLOAD_MODELS ?? "").split(",").filter(Boolean);
 const FILE_GONE = (process.env.FILE_GONE ?? "").split(",").filter(Boolean).map(Number);
+const ECHO_REFS = process.env.ECHO_REFS === "1";
 const filesGone = new Set();
+const goneFiles = new Set();
 const overloads = new Map();
 
 const files = new Map();
@@ -71,7 +75,21 @@ const json = (res, status, obj, headers = {}) => {
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const speakerInfo = (key) => GT.speakers.find((s) => s.key === key) ?? { key, name: "", role: "" };
 
-function transcription(prompt) {
+/** Các tệp giọng mẫu gửi kèm (mọi fileData sau tệp đầu tiên): khoá người nói + khoảng thời gian gốc. */
+function voiceRefsOf(req) {
+  const parts = req.contents?.[0]?.parts ?? [];
+  return parts
+    .filter((p) => p.fileData)
+    .slice(1)
+    .map((p) => {
+      const id = p.fileData.fileUri.split("/").pop();
+      const m = /-voice-([A-Z]\d+)-([\d.]+)-([\d.]+)$/.exec(files.get(id)?.displayName ?? "");
+      return m ? { key: m[1], start: Number(m[2]), end: Number(m[3]) } : null;
+    })
+    .filter(Boolean);
+}
+
+function transcription(prompt, req) {
   const multi = /từ (\S+) đến (\S+) của cuộc họp/.exec(prompt);
   const lenM = /Độ dài tệp ≈ (\S+?)\./.exec(prompt);
   const absStart = multi ? parseTc(multi[1]) : 0;
@@ -88,14 +106,28 @@ function transcription(prompt) {
     segs = segs.filter((s) => s.start - absStart < omitFrom || s.start - absStart > omitTo);
   }
   const keys = [...new Set(segs.map((s) => s.speaker))];
-  log(`Gemini phiên âm đoạn#${idx} [${fmt(absStart)}–${fmt(absEnd)}]${win ? ` cửa sổ ${win[1]}–${win[2]}` : ""} → ${segs.length} câu`);
+  const refs = voiceRefsOf(req);
+  log(
+    `Gemini phiên âm đoạn#${idx} [${fmt(absStart)}–${fmt(absEnd)}]${win ? ` cửa sổ ${win[1]}–${win[2]}` : ""} → ${segs.length} câu` +
+      (refs.length ? `, ${refs.length} giọng mẫu (${refs.map((r) => r.key).join(", ")})` : ""),
+  );
+  // Mô hình "lỡ" phiên âm cả giọng mẫu: thêm câu trùng lời giọng mẫu ở cuối, mốc vượt quá độ dài tệp
+  const echoes = ECHO_REFS
+    ? refs
+        .map((r) => GT.segments.find((g) => g.start <= r.start + 1 && g.end >= r.start))
+        .filter(Boolean)
+        .map((g, i) => ({ start: fmt(absEnd - absStart + 2 + i * 6), end: fmt(absEnd - absStart + 7 + i * 6), speaker: g.speaker, text: g.text }))
+    : [];
   return JSON.stringify({
-    segments: segs.map((s) => ({
-      start: fmt(s.start - absStart),
-      end: fmt(Math.min(s.end, absEnd) - absStart),
-      speaker: s.speaker,
-      text: s.text,
-    })),
+    segments: [
+      ...segs.map((s) => ({
+        start: fmt(s.start - absStart),
+        end: fmt(Math.min(s.end, absEnd) - absStart),
+        speaker: s.speaker,
+        text: s.text,
+      })),
+      ...echoes,
+    ],
     speakers: keys.map((k) => ({ id: k, name: speakerInfo(k).name, role: speakerInfo(k).role ?? "" })),
   });
 }
@@ -132,7 +164,7 @@ function answer(req) {
   }
   if (all.includes("THÔNG TIN CUỘC HỌP")) {
     const prompt = (req.contents?.[0]?.parts ?? []).map((p) => p.text ?? "").join("\n");
-    return transcription(prompt);
+    return transcription(prompt, req);
   }
   log("Gemini soạn văn bản / hỏi đáp");
   return "## Kết luận (giả lập)\n\n- Nội dung kiểm thử [R1 00:08].\n";
@@ -159,12 +191,16 @@ function injectedFailure(body) {
 
 function injectedFileGone(body) {
   const all = JSON.stringify(body.contents ?? "");
+  // Tệp đã "mất" → mọi lời gọi dùng tệp đó đều 403 cho tới khi đoạn được tải lên lại (id mới)
+  for (const id of goneFiles) if (all.includes(`files/${id}"`)) return id; // có dấu " để "f1" không khớp "f12"
   const part = /PHẦN (\d+)\/(\d+)/.exec(all);
   if (!part || all.includes("CHỈ phiên âm phần")) return null;
   const idx = Number(part[1]) - 1;
   if (!FILE_GONE.includes(idx) || filesGone.has(idx)) return null;
   filesGone.add(idx);
-  return /files\/([\w-]+)/.exec(all)?.[1] ?? "unknown";
+  const main = /files\/([\w-]+)/.exec(all)?.[1] ?? "unknown"; // tệp đầu tiên = tệp của đoạn
+  goneFiles.add(main);
+  return main;
 }
 
 function injectedOverload(model, body) {

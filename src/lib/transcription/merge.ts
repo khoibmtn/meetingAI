@@ -29,6 +29,8 @@ export function toAbsoluteSegments(
   for (const raw of result.segments ?? []) {
     const text = (raw.text ?? "").replace(/\s+/g, " ").trim();
     if (!text) continue;
+    // Câu chỉ có chú thích tiếng động / [không nghe rõ]: bỏ — không tạo người nói ảo (vd "Người nói 0")
+    if (!text.replace(/\[[^\]]*\]/g, "").replace(/[\s.,;:!?…-]+/g, "")) continue;
     let s = parseTimecode(raw.start);
     let e = parseTimecode(raw.end);
     if (!Number.isFinite(s)) s = prevEnd;

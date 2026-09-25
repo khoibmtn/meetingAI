@@ -62,8 +62,23 @@ import {
   talkTimeBySpeaker,
   toAbsoluteSegments,
 } from "./merge";
-import { defaultSpeakerName, normalizeSpeakerId, reconcileSpeakers, type ChunkRoster } from "./speakers";
-import { createGemini, deleteGeminiFile, transcribeWithGemini, uploadToGemini, type GeminiFileRef } from "./gemini-engine";
+import { defaultSpeakerName, normalizeSpeakerId, reconcileSpeakers, singleLabel, type ChunkRoster } from "./speakers";
+import {
+  createGemini,
+  deleteGeminiFile,
+  transcribeWithGemini,
+  uploadToGemini,
+  type GeminiFileRef,
+  type VoiceRefPart,
+} from "./gemini-engine";
+import {
+  dropVoiceRefEchoes,
+  MAX_VOICE_REFS,
+  MIN_TALK_SEC_FOR_REF,
+  pickVoiceRefSegments,
+  voiceRefLabel,
+  type VoiceRef,
+} from "./voice-refs";
 import {
   sonioxCleanup,
   sonioxCreateTranscription,
@@ -97,6 +112,10 @@ interface JobAnalysis {
   warnings?: string[];
   /** Lúc một đoạn phải chuyển sang mô hình dự phòng — các đoạn sau dùng luôn dự phòng. */
   fallbackSince?: string;
+  /** Giọng mẫu đã cắt (khoá toàn cục) — gửi kèm các đoạn sau khi phân vai bằng giọng mẫu. */
+  voiceRefs?: VoiceRef[];
+  /** Đã xét lấy giọng mẫu từ các đoạn 0..n. */
+  voiceRefsBuiltThrough?: number;
 }
 
 type Job = Tables<"transcription_jobs">;
@@ -499,15 +518,18 @@ async function stepChunk(admin: Admin, jobId: string, idx?: number) {
   }
 
   const firstDone = chunks[0].status === "done";
-  // Đoạn 0 phải xong trước (để lập danh sách người nói dùng chung)
+  // Phân vai bằng giọng mẫu: các đoạn chạy TUẦN TỰ (đoạn k chờ mọi đoạn trước xong) để nhận danh sách người
+  // nói cộng dồn và giọng mẫu. Không thì chỉ đoạn 0 phải xong trước (lập danh sách người nói dùng chung).
+  const voiceMode = opts.voiceRefs === true;
+  const ready = (i: number) => (voiceMode ? chunks.every((c) => c.idx >= i || c.status === "done") : firstDone || i === 0);
   const candidates =
     idx !== undefined
       ? chunks.filter((c) => c.idx === idx)
-      : chunks.filter((c) => c.status === "pending" || c.status === "processing").filter((c) => firstDone || c.idx === 0);
+      : chunks.filter((c) => c.status === "pending" || c.status === "processing").filter((c) => ready(c.idx));
 
   let claimedIdx: number | null = null;
   for (const c of candidates) {
-    if (c.idx > 0 && !firstDone) continue;
+    if (c.idx > 0 && !ready(c.idx)) continue;
     const { data } = await admin.rpc("claim_transcription_chunk", {
       p_job: jobId,
       p_idx: c.idx,
@@ -529,39 +551,72 @@ async function stepChunk(admin: Admin, jobId: string, idx?: number) {
   const chunk = chunks.find((c) => c.idx === claimedIdx)!;
   const analysis = jobAnalysis(job);
   const base = job.base_url ?? resolveBaseUrl();
+  const startedAt = new Date().toISOString();
   try {
     const conn = await transcriptionConn(job);
     const ai = createGemini(conn);
     const glossary = await loadGlossaryForRecording(recording.id, [job.created_by ?? "", recording.owner_id]);
     const ctx = meetingContext(recording, glossary);
-    const prompt = buildChunkPrompt({
-      ctx,
-      chunkIndex: chunk.idx,
-      chunkCount: chunks.length,
-      absoluteStart: Number(chunk.start_sec),
-      absoluteEnd: Number(chunk.end_sec),
-      roster: chunk.idx > 0 ? analysis.roster : undefined,
-    });
+    // Danh sách người nói (và giọng mẫu, nếu phân vai bằng giọng mẫu) từ các đoạn trước
+    let roster = chunk.idx > 0 ? analysis.roster : undefined;
+    let voiceRefs: VoiceRef[] = [];
+    if (voiceMode && chunk.idx > 0) {
+      ({ roster, voiceRefs } = await speakerContextForChunk(admin, job, recording, chunk.idx, conn));
+      await patchJob(admin, jobId, {
+        stage: `Đang phiên âm đoạn ${chunk.idx + 1}/${chunks.length}${voiceRefs.length ? ` — so giọng với ${voiceRefs.length} giọng mẫu` : ""}`,
+      });
+    }
+    const refParts: VoiceRefPart[] = voiceRefs.map((r) => ({
+      label: voiceRefLabel(roster?.find((s) => s.key === r.key) ?? { key: r.key, name: "", role: null }),
+      file: { name: r.fileName, uri: r.uri, mimeType: r.mimeType },
+    }));
+    const promptFor = (refs: VoiceRefPart[]) =>
+      buildChunkPrompt({
+        ctx,
+        chunkIndex: chunk.idx,
+        chunkCount: chunks.length,
+        absoluteStart: Number(chunk.start_sec),
+        absoluteEnd: Number(chunk.end_sec),
+        roster,
+        voiceRefKeys: refs.length ? voiceRefs.map((r) => r.key) : undefined,
+      });
     const file: GeminiFileRef = { name: chunk.file_name!, uri: chunk.file_uri!, mimeType: chunk.mime_type ?? "audio/flac" };
     // Mô hình chính quá tải / hết lượt → dùng mô hình dự phòng của kết nối (nếu có); đoạn khác vừa phải
     // chuyển sang dự phòng thì đoạn này dùng luôn, khỏi chờ lỗi lại
     const preferFallback = !!analysis.fallbackSince && Date.now() - Date.parse(analysis.fallbackSince) < FALLBACK_STICKY_MS;
     const model = chunkModel(conn, chunk.attempts, chunk.error, preferFallback);
-    const call = (f: GeminiFileRef) => transcribeWithGemini(ai, { ...conn, model }, f, prompt);
+    const call = (f: GeminiFileRef, refs: VoiceRefPart[]) =>
+      transcribeWithGemini(ai, { ...conn, model }, f, promptFor(refs), refs);
+    const fileMissing = (err: unknown) => err instanceof AiError && err.kind === "file_missing";
     let reuploaded = false;
+    let usedRefs = refParts;
     let callResult;
     try {
-      callResult = await call(file).catch(async (err) => {
+      callResult = await call(file, refParts).catch(async (err) => {
+        if (!fileMissing(err)) throw err;
+        // Có thể chính giọng mẫu trên Gemini không còn → thử không kèm giọng mẫu (đoạn sau cắt lại giọng mẫu)
+        if (refParts.length) {
+          try {
+            const r = await call(file, []);
+            usedRefs = [];
+            await patchAnalysis(admin, jobId, { voiceRefs: [], voiceRefsBuiltThrough: -1 });
+            return r;
+          } catch (err2) {
+            if (!fileMissing(err2)) throw err2;
+          }
+        }
         // Tệp đoạn trên Gemini không còn → tải lại từ tệp gốc rồi gọi lại ngay
-        if (!(err instanceof AiError && err.kind === "file_missing")) throw err;
         reuploaded = true;
-        return call(await refreshChunkFile(admin, job, recording, chunk, conn));
+        return call(await refreshChunkFile(admin, job, recording, chunk, conn), refParts);
       });
     } catch (err) {
       await markAuthFailure(conn, err);
       throw err;
     }
     const { result, finishReason } = callResult;
+    // Mô hình lỡ phiên âm cả giọng mẫu → bỏ các câu trùng lời giọng mẫu
+    const echo = dropVoiceRefEchoes(result.segments, usedRefs.length ? voiceRefs.map((r) => r.text) : []);
+    result.segments = echo.kept;
     if (model !== conn.model && !preferFallback) {
       await patchAnalysis(admin, jobId, { fallbackSince: new Date().toISOString() });
     }
@@ -583,7 +638,19 @@ async function stepChunk(admin: Admin, jobId: string, idx?: number) {
 
     await admin
       .from("transcription_chunks")
-      .update({ status: "done", result: { ...result, finishReason, model, reuploaded } as unknown as Json, error: null })
+      .update({
+        status: "done",
+        result: {
+          ...result,
+          finishReason,
+          model,
+          reuploaded,
+          voiceRefs: usedRefs.length,
+          echoesDropped: echo.dropped,
+          startedAt,
+        } as unknown as Json,
+        error: null,
+      })
       .eq("job_id", jobId)
       .eq("idx", chunk.idx);
 
@@ -602,7 +669,7 @@ async function stepChunk(admin: Admin, jobId: string, idx?: number) {
 
     if (done === total) {
       await triggerWorker(base, { jobId, step: "finalize" });
-    } else if (chunk.idx === 0) {
+    } else if (chunk.idx === 0 && !voiceMode) {
       const pending = (after ?? []).filter((c) => c.status === "pending").length;
       await Promise.all(
         Array.from({ length: Math.min(CHUNK_CONCURRENCY, pending) }, () => triggerWorker(base, { jobId, step: "chunk" })),
@@ -645,6 +712,89 @@ async function stepChunk(admin: Admin, jobId: string, idx?: number) {
       throw new Error(`Đoạn ${chunk.idx + 1} phiên âm thất bại sau ${attempts} lần: ${message}.${hint}`);
     }
   }
+}
+
+/**
+ * Phân vai bằng giọng mẫu: trước khi phiên âm đoạn k, thống nhất người nói của các đoạn 0..k-1 (khoá toàn cục)
+ * và cắt giọng mẫu cho người nói chưa có mẫu (mỗi người một lần, tối đa MAX_VOICE_REFS, ưu tiên người nói nhiều).
+ * Lỗi khi cắt / tải giọng mẫu chỉ ghi cảnh báo — đoạn vẫn được phiên âm.
+ */
+async function speakerContextForChunk(
+  admin: Admin,
+  job: Job,
+  recording: Recording,
+  chunkIdx: number,
+  conn: ConnectionConfig,
+): Promise<{ roster: Speaker[]; voiceRefs: VoiceRef[] }> {
+  const analysis = jobAnalysis(job);
+  const { data: prev } = await admin
+    .from("transcription_chunks")
+    .select("idx,start_sec,end_sec,status,result")
+    .eq("job_id", job.id)
+    .eq("kind", "main")
+    .lt("idx", chunkIdx)
+    .order("idx");
+  const outputs = (prev ?? [])
+    .filter((c) => c.status === "done" && c.result)
+    .map((c) => ({
+      plan: {
+        idx: c.idx,
+        start: Number(c.start_sec),
+        end: Number(c.end_sec),
+        overlapBefore: analysis.plans?.find((p) => p.idx === c.idx)?.overlapBefore ?? 0,
+      },
+      result: c.result as unknown as RawChunkResult,
+    }));
+  const reconciled = reconcileSpeakers(
+    outputs.map((o) => ({
+      chunkIdx: o.plan.idx,
+      speakers: o.result.speakers ?? [],
+      talkTime: talkTimeBySpeaker(toAbsoluteSegments(o.plan, o.result)),
+    })),
+  );
+  const segments = outputs.flatMap((o) =>
+    toAbsoluteSegments(o.plan, o.result, (local) => reconciled.mapping[`${o.plan.idx}:${local}`] ?? local),
+  );
+  const talk = talkTimeBySpeaker(segments);
+  const roster = reconciled.speakers
+    .filter((s) => (talk[s.key] ?? 0) > 0)
+    .sort((a, b) => (talk[b.key] ?? 0) - (talk[a.key] ?? 0));
+
+  let voiceRefs = (analysis.voiceRefs ?? []).filter((r) => roster.some((s) => s.key === r.key));
+  if ((analysis.voiceRefsBuiltThrough ?? -1) < chunkIdx - 1) {
+    const have = new Set(voiceRefs.map((r) => r.key));
+    const wanted = roster
+      .filter((s) => !have.has(s.key) && (talk[s.key] ?? 0) >= MIN_TALK_SEC_FOR_REF)
+      .slice(0, Math.max(0, MAX_VOICE_REFS - voiceRefs.length))
+      .map((s) => s.key);
+    const picks = pickVoiceRefSegments(segments, wanted);
+    const warnings = [...(analysis.warnings ?? [])];
+    if (picks.size) {
+      await patchJob(admin, job.id, { stage: `Đang cắt giọng mẫu của ${picks.size} người nói` });
+      try {
+        const made = await withTempDir(async (dir) => {
+          const onDrive = Boolean(recording.drive_file_id) && recording.upload_status === "uploaded";
+          const sizeBytes = Number(recording.size_bytes ?? 0);
+          const { src } = onDrive
+            ? await openOriginal(dir, recording.drive_file_id!, sizeBytes)
+            : await openTempOriginal(dir, recording.id, sizeBytes);
+          const ai = createGemini(conn);
+          const enc = encodeOptions(jobOptions(job), analysis.meanVolumeDb ?? null);
+          return mapLimit([...picks], 3, async ([key, p]): Promise<VoiceRef> => {
+            const out = path.join(dir, `voice-${key}.flac`);
+            await encodeChunk(src, p.start, p.end, out, enc);
+            const f = await uploadToGemini(ai, out, "audio/flac", `rec-${recording.id}-voice-${key}-${p.start}-${p.end}`);
+            return { key, start: p.start, end: p.end, text: p.text, uri: f.uri, fileName: f.name, mimeType: f.mimeType };
+          });
+        });
+        voiceRefs = [...voiceRefs, ...made];
+      } catch (err) {
+        warnings.push(`Không tạo được giọng mẫu trước đoạn ${chunkIdx + 1}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+    await patchAnalysis(admin, job.id, { roster, voiceRefs, voiceRefsBuiltThrough: chunkIdx - 1, warnings });
+  }
+  return { roster, voiceRefs };
 }
 
 function rosterFromResult(plan: ChunkPlan, result: RawChunkResult): Speaker[] {
@@ -839,6 +989,11 @@ async function stepFinalize(admin: Admin, jobId: string) {
         if (cleanupConn && c.file_name) await deleteGeminiFile(createGemini(cleanupConn), c.file_name);
       });
     }
+    for (const r of analysis.voiceRefs ?? []) {
+      cleanup.push(async () => {
+        if (cleanupConn) await deleteGeminiFile(createGemini(cleanupConn), r.fileName);
+      });
+    }
   }
 
   // Bản máy gốc: đầu ra nhận dạng TRƯỚC khi AI hiệu đính thuật ngữ — lưu vào original_segments để đối chiếu/khôi phục
@@ -993,10 +1148,10 @@ export function applySpeakerNaming(
     .filter((s) => !merges.has(s.key))
     .map((s) => {
       const n = naming.speakers?.find((x) => x.key === s.key);
-      if (!n || n.confidence === "low" || !n.name?.trim()) {
-        return { ...s, role: s.role || n?.role || null };
+      if (!n || n.confidence === "low" || !singleLabel(n.name)) {
+        return { ...s, role: s.role || singleLabel(n?.role) || null };
       }
-      return { ...s, name: n.name.trim(), role: n.role?.trim() || s.role || null };
+      return { ...s, name: singleLabel(n.name), role: singleLabel(n.role) || s.role || null };
     });
   return { segments: nextSegments, speakers: nextSpeakers };
 }

@@ -30,6 +30,11 @@ export interface JobOptions {
   nameSpeakers?: boolean;
   correctTerms?: boolean;
   autoReportTemplate?: string | null;
+  /**
+   * Phân vai bằng giọng mẫu (Gemini): các đoạn phiên âm TUẦN TỰ, mỗi đoạn gửi kèm giọng mẫu của người nói
+   * đã xác định ở các đoạn trước → gán đúng người giữa các đoạn. Chậm hơn chạy song song.
+   */
+  voiceRefs?: boolean;
 }
 
 export type WorkerStep = "prepare" | "chunk" | "soniox_poll" | "finalize" | "autoreport";
@@ -144,6 +149,7 @@ export async function startTranscription(params: {
     nameSpeakers: params.options.nameSpeakers ?? true,
     correctTerms: params.options.correctTerms ?? engine === "soniox",
     autoReportTemplate: params.options.autoReportTemplate ?? null,
+    voiceRefs: engine === "gemini" && (params.options.voiceRefs ?? true),
   };
 
   const { data: job, error } = await admin

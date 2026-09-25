@@ -18,6 +18,7 @@
   - chia đoạn tại khoảng lặng, với ngưỡng thích nghi theo nền ồn của từng phòng họp
   - quét lại những khoảng bị mô hình bỏ sót
   - đo và hiển thị độ phủ nội dung
+  - **phân vai bằng giọng mẫu** (mặc định bật): các đoạn phiên âm lần lượt; mỗi đoạn gửi kèm vài giây giọng thật của từng người đã xác định ở đoạn trước để mô hình so giọng, nên không gán nhầm người giữa các đoạn. Chậm hơn chạy song song (bản 40 phút mất khoảng 5–7 phút thay vì ~3 phút); tắt được trong hộp thoại "Phiên âm"
 - **Soniox `stt-async-v5`** (tuỳ chọn): phân vai theo đặc trưng giọng nói trên toàn bộ tệp.
 - Cả hai đều có:
   - AI suy ra tên và vai trò người nói từ nội dung

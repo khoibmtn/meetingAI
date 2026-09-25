@@ -124,6 +124,28 @@ check(
   sql(`select status from ai_connections where id = '30000000-0000-0000-0000-0000000000e1'`) === "ok",
   "403 do tệp không làm khoá kết nối AI",
 );
+const laterChunks = count(`select count(*) from transcription_chunks where job_id = '${jobG}' and kind = 'main' and idx > 0`);
+check(
+  count(`select count(*) from transcription_chunks where job_id = '${jobG}' and kind = 'main' and idx > 0 and (result->>'voiceRefs')::int >= 1`) ===
+    laterChunks,
+  `phân vai bằng giọng mẫu: ${laterChunks} đoạn sau đoạn 1 đều gửi kèm giọng mẫu`,
+);
+check(
+  count(`select jsonb_array_length(analysis->'voiceRefs') from transcription_jobs where id = '${jobG}'`) >= 3,
+  "đã cắt giọng mẫu cho ≥ 3 người nói từ tệp gốc",
+);
+check(
+  sql(
+    `select bool_and((c.result->>'startedAt')::timestamptz >= p.updated_at) from transcription_chunks c
+       join transcription_chunks p on p.job_id = c.job_id and p.kind = 'main' and p.idx = c.idx - 1
+      where c.job_id = '${jobG}' and c.kind = 'main' and c.idx > 0`,
+  ) === "t",
+  "các đoạn chạy tuần tự: đoạn sau chỉ bắt đầu khi đoạn trước đã xong",
+);
+check(
+  count(`select coalesce(sum((result->>'echoesDropped')::int), 0) from transcription_chunks where job_id = '${jobG}' and kind = 'main'`) >= 1,
+  "câu mô hình lỡ phiên âm từ giọng mẫu bị loại",
+);
 const nG = Number(transcriptOf(REC_GEMINI, "jsonb_array_length(segments)"));
 check(nG === GT.segments.length, `đủ câu sau khi quét bổ sung: ${nG}/${GT.segments.length}`);
 check(

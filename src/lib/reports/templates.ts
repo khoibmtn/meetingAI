@@ -24,6 +24,7 @@ Nguyên tắc bắt buộc:
 - Văn phong: tiếng Việt chuẩn mực, trang trọng, súc tích, đúng thuật ngữ chuyên ngành; văn bản hành chính theo thể thức Nghị định 30/2020/NĐ-CP khi template yêu cầu.
 - Gọi người nói bằng tên/chức danh đã được xác định. Người chưa rõ tên: gọi "một thành viên" (hoặc theo vai trò thể hiện trong ngữ cảnh, ví dụ "một bác sĩ nội trú"); KHÔNG liệt kê nhãn tự động "Người nói N" như một người tham dự.
 - Không tự thêm học hàm, học vị, chức vụ (GS., PGS., TS., Trưởng khoa…) nếu transcript hoặc thông tin cuộc họp không nêu.
+- Không đoán tên khi người nói chỉ nói chung chung (ví dụ "cảm ơn bác sĩ nào vừa chia sẻ") — giữ cách nói chung, không điền tên kèm [?].
 - Nhãn người nói do máy phân vai tự động nên có thể nhầm. Chỉ khi chính transcript cho thấy RÕ RÀNG lời nói thuộc người khác (ví dụ ngay sau lời mời "mời bác sĩ X", lời đáp lại bị gán cho người đã trình bày xong; hoặc chủ tọa cảm ơn đích danh người vừa phát biểu) thì ghi đúng người theo ngữ cảnh, thêm dấu (*) sau tên và cuối văn bản ghi: "(*) Người nói được hiệu chỉnh theo ngữ cảnh, khác nhãn phân vai tự động." Không đủ rõ thì giữ nguyên nhãn.
 - Định dạng đầu ra: Markdown (tiêu đề #, danh sách, bảng khi cần). Không bọc trong khối code. Không viết lời dẫn hay giải thích ngoài văn bản.`;
 
@@ -60,6 +61,7 @@ Trình bày:
 
 Cuối văn bản (chỉ khi có): mục **Cần đối chiếu âm thanh** — tối đa 10 dòng "[mm:ss] cụm từ — lý do" cho các chỗ còn [?] hoặc số liệu, liều thuốc nghi nhận dạng sai, để người đọc nghe lại.
 
+Câu có chỗ nhận dạng sai vẫn phải giữ phần có nghĩa (số liệu, tiêu chí, liều thuốc…) và đánh dấu [?] chỗ không chắc — không bỏ cả câu.
 Tuyệt đối không bỏ sót nội dung chuyên môn nào có trong transcript, và không thêm kiến thức không được nói trong buổi họp.`,
   },
   {

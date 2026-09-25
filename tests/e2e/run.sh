@@ -27,7 +27,8 @@ PIDS=()
 
 cleanup() {
   local code=$?
-  for p in "${PIDS[@]:-}"; do [ -n "$p" ] && kill "$p" 2>/dev/null || true; done
+  # Next chạy trong nhóm tiến trình riêng (setsid) → dừng cả nhóm, không để máy chủ cũ sót lại giữ cổng
+  for p in "${PIDS[@]:-}"; do [ -n "$p" ] && { kill -- "-$p" 2>/dev/null || kill "$p" 2>/dev/null || true; }; done
   if [ "$code" -ne 0 ]; then
     for f in postgrest gateway mock next; do
       echo "----- $f.log (cuối) -----"; tail -n 40 "$OUT/$f.log" 2>/dev/null || true
@@ -45,6 +46,11 @@ wait_for() { # url, tên
   done
   echo "Không khởi động được $2 ($1)"; return 1
 }
+
+# Cổng bận (thường do lần chạy trước còn sót) → dừng ngay, tránh kiểm thử nhầm vào máy chủ cũ
+for port in 3001 54321 4010 3100; do
+  if (exec 3<>"/dev/tcp/127.0.0.1/$port") 2>/dev/null; then echo "Cổng $port đang bận — hãy dừng tiến trình cũ rồi chạy lại"; exit 1; fi
+done
 
 echo "▶ Sinh dữ liệu tổng hợp"
 MOCK_URL=http://127.0.0.1:4010 node tests/e2e/synthetic.mjs "$OUT"
@@ -65,7 +71,7 @@ POSTGREST_URL=http://127.0.0.1:3001 DATABASE_URL="$E2E_DB_URL" STORAGE_DIR="$OUT
   node tests/e2e/gateway.mjs > "$OUT/gateway.log" 2>&1 &
 PIDS+=($!)
 AUDIO="$OUT/audio.m4a" GT="$OUT/gt.json" OMIT="1:60:150" FAIL_ONCE="2:500" LATENCY_MS=300 \
-  OVERLOAD="gemini-3.8-flash:0:2" OVERLOAD_MODELS="gemini-9-overloaded" FILE_GONE="1" \
+  OVERLOAD="gemini-3.8-flash:0:2" OVERLOAD_MODELS="gemini-9-overloaded" FILE_GONE="1" ECHO_REFS="1" \
   node tests/e2e/mock-google.mjs > "$OUT/mock.log" 2>&1 &
 PIDS+=($!)
 wait_for http://127.0.0.1:54321/auth/v1/settings gateway
@@ -83,7 +89,7 @@ echo "▶ Khởi động ứng dụng"
 SUPABASE_SECRET_KEY="$SERVICE_KEY" WORKER_SECRET=e2e-worker-secret APP_URL=http://127.0.0.1:3100 TRANSCRIBE_RETRY_BASE_MS=1000 \
   GOOGLE_CLIENT_ID=e2e GOOGLE_CLIENT_SECRET=e2e GOOGLE_DRIVE_REFRESH_TOKEN=e2e \
   GOOGLE_API_BASE_URL=http://127.0.0.1:4010 GOOGLE_OAUTH_TOKEN_URL=http://127.0.0.1:4010/token \
-  npx next start -p 3100 -H 127.0.0.1 > "$OUT/next.log" 2>&1 &
+  setsid npx next start -p 3100 -H 127.0.0.1 > "$OUT/next.log" 2>&1 &
 PIDS+=($!)
 wait_for http://127.0.0.1:3100/login "ứng dụng"
 

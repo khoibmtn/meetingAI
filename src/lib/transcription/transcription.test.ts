@@ -12,7 +12,7 @@ import {
   toAbsoluteSegments,
 } from "./merge";
 import { isNearDuplicate } from "./similarity";
-import { normalizeName, normalizeSpeakerId, reconcileSpeakers } from "./speakers";
+import { normalizeName, normalizeSpeakerId, reconcileSpeakers, singleLabel } from "./speakers";
 
 describe("timecode", () => {
   it("parses common formats", () => {
@@ -154,6 +154,16 @@ describe("similarity & speakers", () => {
     expect(speakers.find((s) => s.key === mapping["2:M1"])?.name).toBe("BS. Dương");
     expect(normalizeSpeakerId("M1")).toBe("M1");
   });
+  it("một khoá chỉ mang một tên, một vai trò (không ghép \"BS. A / BS. B\")", () => {
+    expect(singleLabel("BS. Quang / BS. Dương")).toBe("BS. Quang");
+    expect(singleLabel("Chủ tọa / Giáo sư")).toBe("Chủ tọa");
+    expect(singleLabel(" Thầy ")).toBe("Thầy");
+    expect(singleLabel(undefined)).toBe("");
+    const { speakers } = reconcileSpeakers([
+      { chunkIdx: 0, speakers: [{ id: "S1", name: "BS. Quang / BS. Dương", role: "Người trình bày/Bác sĩ" }], talkTime: { S1: 30 } },
+    ]);
+    expect([speakers[0].name, speakers[0].role]).toEqual(["BS. Quang", "Người trình bày"]);
+  });
 });
 
 describe("merge", () => {
@@ -175,6 +185,21 @@ describe("merge", () => {
     expect(segs[1].start).toBeGreaterThanOrEqual(605);
     expect(segs[1].speaker).toBe("S2");
     expect(segs[2].start).toBeGreaterThanOrEqual(segs[1].start);
+  });
+
+  it("bỏ câu chỉ có chú thích tiếng động / [không nghe rõ] (không tạo người nói ảo)", () => {
+    const segs = toAbsoluteSegments(
+      { idx: 0, start: 0, end: 100, overlapBefore: 0 },
+      {
+        speakers: [],
+        segments: [
+          { start: "00:01", end: "00:03", speaker: "S0", text: "[tiếng gõ bàn phím]" },
+          { start: "00:04", end: "00:05", speaker: "S0", text: "[không nghe rõ]." },
+          { start: "00:06", end: "00:09", speaker: "S3", text: "[cười] Thế là cũng hơi bị quá." },
+        ],
+      },
+    );
+    expect(segs.map((x) => x.speaker)).toEqual(["S3"]);
   });
 
   it("rescales timestamps that overshoot the chunk length", () => {

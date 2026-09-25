@@ -82,7 +82,7 @@ export function reconcileSpeakers(rosters: ChunkRoster[]): {
     const used = new Set<string>();
     for (const localId of localIds) {
       const info = roster.speakers.find((s) => normalizeSpeakerId(s.id) === localId);
-      const name = isMeaningfulName(info?.name) ? info!.name!.trim() : undefined;
+      const name = isMeaningfulName(info?.name) ? singleLabel(info!.name) || undefined : undefined;
       const norm = name ? normalizeName(name) : "";
       let target: string | undefined;
 
@@ -104,7 +104,7 @@ export function reconcileSpeakers(rosters: ChunkRoster[]): {
         vote(g.names, name, weight);
         if (norm && !nameIndex.has(norm)) nameIndex.set(norm, target!);
       }
-      if (info?.role) vote(g.roles, info.role.trim(), weight);
+      if (singleLabel(info?.role)) vote(g.roles, singleLabel(info?.role), weight);
       if (info?.description && !g.desc) g.desc = info.description.trim();
       mapping[`${roster.chunkIdx}:${localId}`] = target!;
     }
@@ -118,6 +118,14 @@ export function reconcileSpeakers(rosters: ChunkRoster[]): {
     })
     .sort((a, b) => speakerOrder(a.key) - speakerOrder(b.key));
   return { mapping, speakers };
+}
+
+/**
+ * Một khoá người nói chỉ mang MỘT tên / vai trò: "BS. Quang / BS. Dương" → "BS. Quang",
+ * "Chủ tọa / Giáo sư" → "Chủ tọa". (Khoá lẫn hai người là lỗi phân vai, ghép tên chỉ che lỗi.)
+ */
+export function singleLabel(value: string | null | undefined): string {
+  return (value ?? "").split(/\s*[/;|]\s*/)[0].trim();
 }
 
 /** Người nói đã được xác định tên (không phải nhãn phân vai tự động như "Người nói 3"). */

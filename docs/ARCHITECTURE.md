@@ -84,7 +84,15 @@ Trạng thái tác vụ: `queued → preparing → transcribing → finalizing �
    - Tải từng đoạn lên Gemini Files API, rồi xoá tệp tạm ngay.
 2. **chunk ×N**
    - Đoạn 0 chạy trước để lập **danh sách người nói**.
-   - Các đoạn sau (tối đa 3 đoạn song song) nhận danh sách này kèm tên người tham dự và từ điển thuật ngữ.
+   - **Phân vai bằng giọng mẫu** (`voiceRefs`, mặc định bật; `src/lib/transcription/voice-refs.ts`):
+     - Các đoạn chạy **tuần tự**: đoạn k chỉ được nhận khi mọi đoạn trước đã xong.
+     - Trước đoạn k, worker thống nhất người nói của các đoạn 0..k-1 thành khoá toàn cục (danh sách cộng dồn). Người chưa có giọng mẫu (nói ≥ 4 s, tối đa 8 người, ưu tiên người nói nhiều) được cắt một đoạn 3,5–12 s từ tệp gốc: câu chỉ một người nói, không chồng lấn, không có [?], thu hẹp mép 0,2 s. Đoạn mẫu tải lên Files API.
+     - Lời gọi đoạn k: tệp chính đứng đầu (mốc thời gian tính trên tệp này), sau đó các giọng mẫu có nhãn ("Giọng mẫu S1 — Thầy (Chủ tọa)"), cuối cùng là lời dặn. Mô hình so giọng để gán ID; giọng không khớp mẫu nào → ID mới.
+     - Câu trùng lời giọng mẫu (mô hình lỡ phiên âm cả giọng mẫu) bị loại trước khi lưu đoạn.
+     - Giọng mẫu trên Gemini không còn (403) → phiên âm đoạn đó không kèm mẫu, đoạn sau cắt lại mẫu. Lỗi khi cắt mẫu chỉ ghi cảnh báo.
+     - Tắt tuỳ chọn: chạy như cũ — tối đa 3 đoạn song song, chỉ có danh sách người nói bằng chữ của đoạn 0.
+   - Các đoạn sau nhận danh sách người nói kèm tên người tham dự và từ điển thuật ngữ.
+     - Phân vai theo **giọng**, không theo vai trò hay độ dài lượt lời (chủ tọa vừa điều hành vừa giảng giải vẫn một ID).
      - Chỉ dùng lại ID khi chắc chắn cùng người; giọng mới hoặc không chắc → ID mới dạng `M1, M2…` riêng cho đoạn đó. Nhờ vậy người mới ở hai đoạn chạy song song không bị gộp nhầm vào một ID. Tách nhầm còn gộp lại được, gộp nhầm hai người thì không.
    - Đầu ra là JSON theo schema: câu `{start, end, speaker, text}` và người nói.
    - JSON bị cắt ngang được sửa rồi gắn cờ.
@@ -100,6 +108,7 @@ Trạng thái tác vụ: `queued → preparing → transcribing → finalizing �
      - chuyển mốc thời gian về tuyệt đối
      - bỏ câu trùng ở vùng chồng lấn (so khớp văn bản)
      - cắt vòng lặp lặp lại
+     - bỏ câu chỉ có chú thích tiếng động / [không nghe rõ] (không tạo người nói ảo)
      - thống nhất người nói giữa các đoạn theo tên (ID `M…` luôn được cấp khoá toàn cục mới)
    - **Đo độ phủ**: so vùng có tiếng nói (từ khoảng lặng) với vùng đã có chữ.
      - Khoảng hở lớn được **phiên âm bổ sung**, tối đa 10 cửa sổ.
@@ -108,6 +117,7 @@ Trạng thái tác vụ: `queued → preparing → transcribing → finalizing �
    - **Nhận diện tên người nói**: LLM trả JSON tên, vai trò, độ tin cậy.
      - Chỉ áp dụng tên có độ tin cậy cao hoặc vừa.
      - Chỉ gộp người nói khi độ tin cậy cao.
+     - Một khoá chỉ mang một tên và một vai trò (không ghép "BS. A / BS. B").
      - "Thành phần tham dự" có vai trò (vd "Thầy Hiển (chủ tọa)") mà đúng một người nói thể hiện vai trò đó → được gán tên với độ tin cậy vừa, kể cả khi tên không được gọi. Không tự thêm học hàm, học vị.
    - Lưu transcript:
      - `original_segments` là bản máy gốc, lấy **trước** bước AI hiệu đính thuật ngữ, không bao giờ sửa.

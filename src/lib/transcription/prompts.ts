@@ -47,7 +47,9 @@ SEGMENTATION & TIMESTAMPS
 SPEAKER DIARIZATION
 - Label speakers "S1", "S2", ... (or as instructed in the prompt for this file) and keep each label consistent for the whole file, using voice characteristics and conversational context (who asks, who answers, who presents, who chairs).
 - Overlapping speech: attribute to the dominant speaker; mark short interjections from others as separate segments when clear.
+- Labels follow the VOICE, not the role or the length of a turn: the chair may moderate briefly and also give long explanations — keep the chair's label for both; never give the presenter's label to someone else's long explanation.
 - A person invited by name ("mời anh/bác sĩ X") is the one who replies next — never label that reply with the label of someone who already spoke just because the role looks similar.
+- If VOICE SAMPLES of known speakers are attached after the main audio, compare every voice in the main audio with them to choose labels. Never transcribe the voice samples themselves.
 - In "speakers", list every label used. Fill "name" ONLY when the person's name is stated or clearly implied (e.g. "mời bác sĩ Quang trình bày" → the next presenter is Bác sĩ Quang; "cảm ơn thầy Hiển"). Use the honorific form used in the meeting (Thầy Hiển, BS. Quang). Never add academic titles or positions (GS., PGS., TS., Trưởng khoa…) that were not spoken. Fill "role" when evident (Chủ tọa, Người trình bày, Thư ký, Thành viên). Give a short "description" of voice/role to help identify the speaker later.
 
 NON-SPEECH
@@ -123,6 +125,8 @@ export interface ChunkPromptInput {
   absoluteEnd: number;
   /** Danh sách người nói đã xác định ở đoạn đầu (để dùng lại cùng ID). */
   roster?: Speaker[];
+  /** ID những người có giọng mẫu gửi kèm sau tệp chính. */
+  voiceRefKeys?: string[];
 }
 
 export function buildChunkPrompt(input: ChunkPromptInput): string {
@@ -157,6 +161,14 @@ export function buildChunkPrompt(input: ChunkPromptInput): string {
       const bits = [s.name && !/^Người nói/.test(s.name) ? s.name : null, s.role, s.description].filter(Boolean);
       lines.push(`- ${s.key}: ${bits.join(" — ") || "chưa rõ tên"}`);
     }
+  }
+  if (input.voiceRefKeys?.length) {
+    lines.push("");
+    lines.push(
+      `GIỌNG MẪU: sau tệp âm thanh chính có ${input.voiceRefKeys.length} đoạn giọng mẫu vài giây của ${input.voiceRefKeys.join(", ")}. ` +
+        "So từng giọng trong tệp chính với các giọng mẫu để gán đúng ID — giọng không khớp mẫu nào là người khác (ID mới M1, M2…). " +
+        "KHÔNG phiên âm các giọng mẫu; mốc thời gian chỉ tính trên tệp âm thanh chính (tệp đầu tiên).",
+    );
   }
   const glossary = formatGlossary(ctx.glossary);
   if (glossary) {
@@ -193,8 +205,9 @@ Tasks:
 2. Participants list (if provided) may give names with roles (e.g. "Thầy Hiển (chủ tọa)", "BS Quang (trình bày)"). When exactly one speaker clearly performs a listed role in the transcript (the chair opens the session, invites speakers, comments and concludes; the presenter presents the case), you may assign that participant's name with confidence "medium" even if the name itself is never spoken. Otherwise use the list only as supporting evidence.
 3. If a speaker is only ever addressed by a form of address (e.g. "Thầy", "Cô") and no name is available, you may use that form alone as the name (e.g. "Thầy") with confidence "medium".
 4. Role: one short label (Chủ tọa, Người trình bày, Thư ký, Thành viên…). Never add academic titles, degrees or positions (GS., PGS., TS., ThS., Trưởng khoa…) that are not stated in the transcript or the participants list.
-5. Detect keys that are clearly the SAME person split by diarization (same name used, the same presentation continuing across keys). Only propose a merge with strong evidence.
-6. Be conservative: if the evidence is weak, leave name empty and confidence "low". Never guess a name that never appears in the transcript or the participants list.
+5. Exactly one name per key — never combine names ("BS. A / BS. B"). If a key seems to mix two people, give the name of the one who speaks most under that key and mention the conflict in "evidence".
+6. Detect keys that are clearly the SAME person split by diarization (same name used, the same presentation continuing across keys). Only propose a merge with strong evidence.
+7. Be conservative: if the evidence is weak, leave name empty and confidence "low". Never guess a name that never appears in the transcript or the participants list.
 
 Return only JSON matching the schema.`;
 
