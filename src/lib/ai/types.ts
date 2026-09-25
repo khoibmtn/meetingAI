@@ -36,7 +36,7 @@ export interface JsonRequest extends TextRequest {
 export class AiError extends Error {
   constructor(
     message: string,
-    public readonly kind: "auth" | "rate_limit" | "refusal" | "bad_request" | "unavailable" | "unknown" = "unknown",
+    public readonly kind: "auth" | "rate_limit" | "refusal" | "bad_request" | "unavailable" | "overloaded" | "unknown" = "unknown",
     public readonly retryable = false,
   ) {
     super(message);
@@ -47,4 +47,13 @@ export function effectiveParams(req: TextRequest, fallbackMax: number): ModelPar
   const merged: ModelParams = { ...req.conn.params, ...(req.overrides ?? {}) };
   const max = Math.max(merged.maxOutputTokens ?? fallbackMax, req.minOutputTokens ?? 0);
   return { ...merged, maxOutputTokens: max };
+}
+
+/** Thông báo khi Gemini trả 503 "high demand" — cũng dùng để nhận diện lại từ lỗi đã lưu trong CSDL. */
+export const GEMINI_OVERLOADED = "Gemini đang quá tải";
+
+/** Mô hình dự phòng cấu hình trong kết nối (khác mô hình chính), dùng khi mô hình chính quá tải. */
+export function fallbackModelFor(conn: Pick<ConnectionConfig, "model" | "params">): string | null {
+  const m = conn.params?.fallbackModel?.trim();
+  return m && m !== conn.model ? m : null;
 }

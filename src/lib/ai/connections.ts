@@ -158,16 +158,20 @@ export async function requireConnection(usage: Usage, userId?: string | null, pr
   return conn;
 }
 
-/** Cập nhật trạng thái sau khi kiểm tra hoặc khi gặp lỗi xác thực lúc chạy thật. */
+/**
+ * Cập nhật trạng thái sau khi kiểm tra hoặc khi gặp lỗi xác thực lúc chạy thật.
+ * Lỗi tạm thời (quá tải, giới hạn tần suất, mạng) chỉ ghi lại thông báo, KHÔNG đánh dấu kết nối
+ * hỏng — nếu không, một đợt Gemini quá tải sẽ làm mọi tác vụ sau đó không còn kết nối để dùng.
+ */
 export async function recordConnectionStatus(
   id: string | undefined,
-  result: { ok: boolean; latencyMs?: number; error?: string },
+  result: { ok: boolean; latencyMs?: number; error?: string; transient?: boolean },
 ) {
   if (!id) return;
   await createAdminClient()
     .from("ai_connections")
     .update({
-      status: result.ok ? "ok" : "error",
+      ...(result.ok || !result.transient ? { status: result.ok ? "ok" : "error" } : {}),
       last_tested_at: new Date().toISOString(),
       last_latency_ms: result.latencyMs ?? null,
       last_error: result.ok ? null : (result.error ?? "Lỗi không rõ").slice(0, 500),
@@ -204,6 +208,7 @@ export function sanitizeParams(p: ModelParams | undefined): ModelParams {
   if (p.effort) out.effort = ["minimal", "low", "medium", "high", "xhigh", "max"].includes(p.effort) ? p.effort : null;
   if (p.verbosity) out.verbosity = ["low", "medium", "high"].includes(p.verbosity) ? p.verbosity : null;
   if (p.extra && typeof p.extra === "object" && !Array.isArray(p.extra)) out.extra = p.extra;
+  if (typeof p.fallbackModel === "string" && /^[\w.:/-]{1,100}$/.test(p.fallbackModel.trim())) out.fallbackModel = p.fallbackModel.trim();
   return out;
 }
 

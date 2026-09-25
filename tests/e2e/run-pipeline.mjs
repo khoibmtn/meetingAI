@@ -101,6 +101,15 @@ check(
   count(`select count(*) from transcription_chunks where job_id = '${jobG}' and attempts > 1`) >= 1,
   "đoạn bị lỗi tạm thời được thử lại và thành công",
 );
+check(
+  sql(`select attempts || ':' || (result->>'model') from transcription_chunks where job_id = '${jobG}' and kind = 'main' and idx = 0`) ===
+    "3:gemini-2.5-flash",
+  "mô hình chính quá tải (503) 2 lần → đoạn 1 chuyển sang mô hình dự phòng",
+);
+check(
+  transcriptOf(REC_GEMINI, "quality::text").includes("mô hình dự phòng gemini-2.5-flash"),
+  "transcript ghi chú đoạn dùng mô hình dự phòng",
+);
 const nG = Number(transcriptOf(REC_GEMINI, "jsonb_array_length(segments)"));
 check(nG === GT.segments.length, `đủ câu sau khi quét bổ sung: ${nG}/${GT.segments.length}`);
 check(
@@ -142,6 +151,20 @@ for (let i = 0; i < 40 && !/^(ready|error)/.test(report); i++) {
   report = sql(`select coalesce(max(status), '') from reports where recording_id = '${REC_SONIOX}' and template_key = 'sys:giao-ban'`);
 }
 check(report === "ready", "tự tạo biên bản giao ban sau khi phiên âm");
+
+// ---------------------------------------------------------------------------
+console.log("\n▶ Kiểm tra kết nối khi Gemini quá tải: báo lỗi tạm thời, không khoá kết nối");
+const tested = await api("POST", "/api/ai/connections/test", {
+  id: "30000000-0000-0000-0000-0000000000e5",
+  provider: "gemini",
+  baseUrl: "http://127.0.0.1:4010",
+  model: "gemini-9-overloaded",
+});
+check(!tested.ok && tested.transient === true && /quá tải/.test(tested.error ?? ""), `kết quả: lỗi tạm thời — ${tested.error}`);
+check(
+  sql(`select status || ':' || (last_error is not null) from ai_connections where id = '30000000-0000-0000-0000-0000000000e5'`) === "ok:true",
+  "kết nối vẫn 'ok' (chỉ ghi lại lỗi)",
+);
 
 // ---------------------------------------------------------------------------
 console.log("\n▶ Không lưu tệp: gửi tệp tạm theo khối, phiên âm, tự xoá tệp tạm; tải lại để phiên âm lại");

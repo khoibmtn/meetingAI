@@ -121,8 +121,13 @@ export function ConnectionsManager({ scope }: { scope: "org" | "user" }) {
                     {c.params.effort ? <Badge variant="muted">Suy luận: {EFFORT_OPTIONS.find((o) => o.value === c.params.effort)?.label.split(" — ")[0]}</Badge> : null}
                     {c.params.verbosity ? <Badge variant="muted">{VERBOSITY_OPTIONS.find((o) => o.value === c.params.verbosity)?.label}</Badge> : null}
                     {c.params.temperature != null ? <Badge variant="muted">T={c.params.temperature}</Badge> : null}
+                    {c.params.fallbackModel ? <Badge variant="muted">Dự phòng: {c.params.fallbackModel}</Badge> : null}
                   </div>
-                  {c.status === "error" && c.lastError ? <p className="line-clamp-2 text-xs text-destructive">{c.lastError}</p> : null}
+                  {c.lastError ? (
+                    <p className={`line-clamp-2 text-xs ${c.status === "error" ? "text-destructive" : "text-muted-foreground"}`}>
+                      {c.status === "error" ? c.lastError : `Lần kiểm tra gần nhất gặp lỗi tạm thời (kết nối vẫn được dùng): ${c.lastError}`}
+                    </p>
+                  ) : null}
                   {canManage ? (
                     <div className="mt-auto flex gap-1">
                       <Button size="sm" variant="outline" onClick={() => retest(c)} disabled={testingId === c.id}>

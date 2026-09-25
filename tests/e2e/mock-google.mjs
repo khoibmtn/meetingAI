@@ -10,6 +10,8 @@
 //   OMIT="2:60:150"      → đoạn idx 2 bỏ sót các câu có mốc tương đối 60–150 s (mô phỏng lỗi bỏ sót của Gemini)
 //   FAIL_ONCE="1:500"    → lần gọi đầu của đoạn idx 1 trả lỗi 500 (kiểm tra thử lại)
 //   FAIL_COUNT="1:500:3" → đoạn idx 1 lỗi liên tiếp 3 lần
+//   OVERLOAD="gemini-3.8-flash:0:2" → mô hình đó, đoạn idx 0: 2 lần gọi đầu trả 503 "high demand" (kiểm tra mô hình dự phòng)
+//   OVERLOAD_MODELS="gemini-9-overloaded" → mọi lời gọi tới các mô hình này trả 503 "high demand"
 import http from "node:http";
 import fs from "node:fs";
 
@@ -26,6 +28,15 @@ const rules = (name) =>
     .map((x) => x.split(":").map(Number));
 const FAIL_ONCE = rules("FAIL_ONCE");
 const FAIL_COUNT = rules("FAIL_COUNT");
+const OVERLOAD = (process.env.OVERLOAD ?? "")
+  .split(",")
+  .filter(Boolean)
+  .map((x) => {
+    const [model, idx, n] = x.split(":");
+    return { model, idx: Number(idx), n: Number(n) };
+  });
+const OVERLOAD_MODELS = (process.env.OVERLOAD_MODELS ?? "").split(",").filter(Boolean);
+const overloads = new Map();
 
 const files = new Map();
 const sessions = new Map();
@@ -143,6 +154,20 @@ function injectedFailure(body) {
   return null;
 }
 
+function injectedOverload(model, body) {
+  if (OVERLOAD_MODELS.includes(model)) return true;
+  const all = JSON.stringify(body.contents ?? "");
+  const part = /PHẦN (\d+)\/(\d+)/.exec(all);
+  if (!part || all.includes("CHỈ phiên âm phần")) return false;
+  const idx = Number(part[1]) - 1;
+  const rule = OVERLOAD.find((r) => r.model === model && r.idx === idx);
+  const key = `${model}:${idx}`;
+  const n = overloads.get(key) ?? 0;
+  if (!rule || n >= rule.n) return false;
+  overloads.set(key, n + 1);
+  return true;
+}
+
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`);
   const p = url.pathname;
@@ -212,12 +237,23 @@ const server = http.createServer(async (req, res) => {
       return f ? json(res, 200, f) : json(res, 404, { error: { code: 404, message: "not found", status: "NOT_FOUND" } });
     }
     if (req.method === "GET" && p === "/v1beta/models") {
-      return json(res, 200, { models: [{ name: "models/gemini-3.8-flash", displayName: "Gemini 3.8 Flash", supportedGenerationMethods: ["generateContent"] }] });
+      return json(res, 200, {
+        models: [
+          { name: "models/gemini-3.8-flash", displayName: "Gemini 3.8 Flash", supportedGenerationMethods: ["generateContent"] },
+          { name: "models/gemini-2.5-flash", displayName: "Gemini 2.5 Flash", supportedGenerationMethods: ["generateContent"] },
+        ],
+      });
     }
     const gm = /^\/v1beta\/models\/([^:]+):(generateContent|streamGenerateContent)$/.exec(p);
     if (req.method === "POST" && gm) {
       const body = JSON.parse((await readBody(req)).toString());
       await sleep(LATENCY_MS);
+      if (injectedOverload(gm[1], body)) {
+        log(`QUÁ TẢI 503 (${gm[1]})`);
+        return json(res, 503, {
+          error: { code: 503, message: "This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.", status: "UNAVAILABLE" },
+        });
+      }
       const code = injectedFailure(body);
       if (code) {
         log(`TIÊM LỖI ${code}`);

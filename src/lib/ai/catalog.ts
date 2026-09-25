@@ -23,6 +23,8 @@ export interface ModelParams {
   verbosity?: Verbosity | null;
   /** Tham số nâng cao gửi kèm nguyên văn vào yêu cầu (JSON). */
   extra?: Record<string, unknown> | null;
+  /** Mô hình dùng thay khi mô hình chính quá tải (Gemini 503 "high demand"). */
+  fallbackModel?: string | null;
 }
 
 /** Thông tin kết nối an toàn để hiển thị ở client (không có khoá). */

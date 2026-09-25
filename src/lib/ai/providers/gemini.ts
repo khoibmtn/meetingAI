@@ -1,7 +1,15 @@
 import "server-only";
 import { ApiError, GoogleGenAI, ThinkingLevel, type Content, type GenerateContentConfig } from "@google/genai";
 import { verbosityInstruction, type Effort } from "../catalog";
-import { AiError, effectiveParams, type ConnectionConfig, type JsonRequest, type TextRequest } from "../types";
+import {
+  AiError,
+  effectiveParams,
+  fallbackModelFor,
+  GEMINI_OVERLOADED,
+  type ConnectionConfig,
+  type JsonRequest,
+  type TextRequest,
+} from "../types";
 
 export function geminiClientFor(conn: Pick<ConnectionConfig, "apiKey" | "baseUrl">) {
   const baseUrl = conn.baseUrl?.trim();
@@ -62,52 +70,78 @@ export function mapGeminiError(err: unknown): AiError {
     if (status === 429) return new AiError("Gemini đang giới hạn tần suất (429) — thử lại sau", "rate_limit", true);
     if (status === 400) return new AiError(`Yêu cầu Gemini không hợp lệ: ${err.message}`, "bad_request");
     if (status === 404) return new AiError(`Không tìm thấy mô hình Gemini: ${err.message}`, "bad_request");
-    if (status >= 500) return new AiError("Dịch vụ Gemini tạm thời lỗi", "unavailable", true);
+    if (status === 503) {
+      return new AiError(`${GEMINI_OVERLOADED} (503 — mô hình đang có nhu cầu cao, thường chỉ tạm thời)`, "overloaded", true);
+    }
+    if (status >= 500) return new AiError(`Dịch vụ Gemini tạm thời lỗi (HTTP ${status})`, "unavailable", true);
     return new AiError(err.message);
   }
   if (err instanceof AiError) return err;
   return new AiError(err instanceof Error ? err.message : String(err), "unknown", true);
 }
 
+/** Thứ tự mô hình thử: chính, rồi dự phòng (nếu có). */
+function modelsToTry<T extends { conn: ConnectionConfig }>(req: T): T[] {
+  const fallback = fallbackModelFor(req.conn);
+  return fallback ? [req, { ...req, conn: { ...req.conn, model: fallback } }] : [req];
+}
+
 export async function* geminiStreamText(req: TextRequest): AsyncGenerator<string> {
   const ai = geminiClientFor(req.conn);
-  try {
-    const stream = await ai.models.generateContentStream({
-      model: req.conn.model,
-      contents: toContents(req),
-      config: geminiConfig(req, 32768),
-    });
-    for await (const chunk of stream) {
-      const text = chunk.text;
-      if (text) yield text;
-      const reason = chunk.candidates?.[0]?.finishReason;
-      if (reason === "SAFETY" || reason === "PROHIBITED_CONTENT") {
-        throw new AiError("Gemini đã chặn nội dung vì lý do an toàn", "refusal");
+  const attempts = modelsToTry(req);
+  for (const [i, r] of attempts.entries()) {
+    let yielded = false;
+    try {
+      const stream = await ai.models.generateContentStream({
+        model: r.conn.model,
+        contents: toContents(r),
+        config: geminiConfig(r, 32768),
+      });
+      for await (const chunk of stream) {
+        const text = chunk.text;
+        if (text) {
+          yielded = true;
+          yield text;
+        }
+        const reason = chunk.candidates?.[0]?.finishReason;
+        if (reason === "SAFETY" || reason === "PROHIBITED_CONTENT") {
+          throw new AiError("Gemini đã chặn nội dung vì lý do an toàn", "refusal");
+        }
       }
+      return;
+    } catch (err) {
+      const mapped = mapGeminiError(err);
+      // Quá tải trước khi có chữ nào → chuyển sang mô hình dự phòng
+      if (mapped.kind === "overloaded" && !yielded && i < attempts.length - 1) continue;
+      throw mapped;
     }
-  } catch (err) {
-    throw mapGeminiError(err);
   }
 }
 
 export async function geminiGenerateJson<T>(req: JsonRequest): Promise<T> {
   const ai = geminiClientFor(req.conn);
-  let text = "";
-  try {
-    const stream = await ai.models.generateContentStream({
-      model: req.conn.model,
-      contents: toContents(req),
-      config: {
-        ...geminiConfig(req, 16384),
-        responseMimeType: "application/json",
-        responseJsonSchema: req.schema,
-      },
-    });
-    for await (const chunk of stream) text += chunk.text ?? "";
-  } catch (err) {
-    throw mapGeminiError(err);
+  const attempts = modelsToTry(req);
+  for (const [i, r] of attempts.entries()) {
+    let text = "";
+    try {
+      const stream = await ai.models.generateContentStream({
+        model: r.conn.model,
+        contents: toContents(r),
+        config: {
+          ...geminiConfig(r, 16384),
+          responseMimeType: "application/json",
+          responseJsonSchema: r.schema,
+        },
+      });
+      for await (const chunk of stream) text += chunk.text ?? "";
+    } catch (err) {
+      const mapped = mapGeminiError(err);
+      if (mapped.kind === "overloaded" && i < attempts.length - 1) continue;
+      throw mapped;
+    }
+    return JSON.parse(text) as T;
   }
-  return JSON.parse(text) as T;
+  throw new AiError(GEMINI_OVERLOADED, "overloaded", true);
 }
 
 export async function geminiListModels(conn: Pick<ConnectionConfig, "apiKey" | "baseUrl">) {

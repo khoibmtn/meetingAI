@@ -77,10 +77,12 @@ insert into public.recordings (id, owner_id, title, category, meeting_date, part
 values ('10000000-0000-0000-0000-0000000000e3', '00000000-0000-0000-0000-0000000000e0', 'E2E Không lưu tệp', 'giao_ban', '2026-09-25', '${participants}');
 
 insert into public.ai_connections (id, scope, name, provider, base_url, encrypted_key, key_hint, model, params, status, created_by)
-values ('30000000-0000-0000-0000-0000000000e1', 'org', 'Gemini giả lập', 'gemini', '${MOCK}', '${encrypt("mock-gemini-key")}', '…-key', 'gemini-3.8-flash', '{}', 'ok', '00000000-0000-0000-0000-0000000000e0'),
+values ('30000000-0000-0000-0000-0000000000e1', 'org', 'Gemini giả lập', 'gemini', '${MOCK}', '${encrypt("mock-gemini-key")}', '…-key', 'gemini-3.8-flash', '{"fallbackModel": "gemini-2.5-flash"}', 'ok', '00000000-0000-0000-0000-0000000000e0'),
        ('30000000-0000-0000-0000-0000000000e2', 'org', 'Soniox giả lập', 'soniox', '${MOCK}', '${encrypt("mock-soniox-key")}', '…-key', 'stt-async-v5', '{}', 'ok', '00000000-0000-0000-0000-0000000000e0'),
        -- Địa chỉ sai: bước chuẩn bị thất bại (kiểm tra tệp tạm được giữ để "Thử lại")
-       ('30000000-0000-0000-0000-0000000000e4', 'org', 'Gemini hỏng', 'gemini', 'http://127.0.0.1:9', '${encrypt("mock-gemini-key")}', '…-key', 'gemini-3.8-flash', '{}', 'ok', '00000000-0000-0000-0000-0000000000e0');
+       ('30000000-0000-0000-0000-0000000000e4', 'org', 'Gemini hỏng', 'gemini', 'http://127.0.0.1:9', '${encrypt("mock-gemini-key")}', '…-key', 'gemini-3.8-flash', '{}', 'ok', '00000000-0000-0000-0000-0000000000e0'),
+       -- Mô hình luôn quá tải (503): kiểm tra "Kiểm tra kết nối" không khoá kết nối vì lỗi tạm thời
+       ('30000000-0000-0000-0000-0000000000e5', 'org', 'Gemini quá tải', 'gemini', '${MOCK}', '${encrypt("mock-gemini-key")}', '…-key', 'gemini-9-overloaded', '{}', 'ok', '00000000-0000-0000-0000-0000000000e0');
 
 insert into public.ai_assignments (scope, usage, connection_id)
 select 'org', u, '30000000-0000-0000-0000-0000000000e1'

@@ -116,6 +116,8 @@ export interface TestResult {
   latencyMs: number;
   sample?: string;
   error?: string;
+  /** Lỗi nhất thời (quá tải, giới hạn tần suất, mạng) — không phải do khoá/mô hình sai. */
+  transient?: boolean;
 }
 
 /** Kiểm tra kết nối bằng một yêu cầu nhỏ, đo độ trễ. */
@@ -128,7 +130,14 @@ export async function testConnection(conn: ConnectionConfig): Promise<TestResult
         headers: { Authorization: `Bearer ${conn.apiKey}` },
         signal: AbortSignal.timeout(20_000),
       });
-      if (!res.ok) throw new AiError(`Soniox trả về HTTP ${res.status}${res.status === 401 ? " (sai khoá API)" : ""}`, "auth");
+      if (!res.ok) {
+        const auth = res.status === 401 || res.status === 403;
+        throw new AiError(
+          `Soniox trả về HTTP ${res.status}${auth ? " (sai khoá API)" : ""}`,
+          auth ? "auth" : res.status === 429 ? "rate_limit" : res.status >= 500 ? "unavailable" : "bad_request",
+          !auth && (res.status === 429 || res.status >= 500),
+        );
+      }
       return { ok: true, latencyMs: Date.now() - started, sample: "Kết nối Soniox hợp lệ" };
     }
     const text = await generateText({
@@ -145,6 +154,8 @@ export async function testConnection(conn: ConnectionConfig): Promise<TestResult
       ok: false,
       latencyMs: Date.now() - started,
       error: err instanceof Error ? err.message : String(err),
+      // Quá tải / giới hạn tần suất / mạng: khoá và mô hình vẫn đúng, chỉ là lỗi nhất thời
+      transient: err instanceof AiError ? err.retryable && err.kind !== "auth" : true,
     };
   }
 }

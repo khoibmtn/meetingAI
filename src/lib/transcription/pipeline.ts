@@ -30,7 +30,8 @@ import {
 } from "@/lib/audio/ffmpeg";
 import { generateJson, type ConnectionConfig } from "@/lib/ai";
 import { getConnectionConfig, markAuthFailure, requireConnection, resolveConnection } from "@/lib/ai/connections";
-import { AiError } from "@/lib/ai/types";
+import { AiError, fallbackModelFor, GEMINI_OVERLOADED } from "@/lib/ai/types";
+import { chunkModel, isTransientError, maxAttemptsFor, MAX_RETRY_WAIT_MS, retryDelayMs } from "./retry";
 import { serverEnv } from "@/lib/env";
 import { sleep, stripDiacritics } from "@/lib/utils";
 import { planChunks } from "./chunking";
@@ -93,7 +94,8 @@ type Recording = Tables<"recordings">;
 type Admin = ReturnType<typeof createAdminClient>;
 
 const CHUNK_CONCURRENCY = 3;
-const MAX_CHUNK_ATTEMPTS = 3;
+/** Giãn cách thử lại cơ sở (kiểm thử có thể rút ngắn qua TRANSCRIBE_RETRY_BASE_MS). */
+const RETRY_BASE_MS = Number(process.env.TRANSCRIBE_RETRY_BASE_MS) || 10_000;
 /** Ngân sách thời gian an toàn cho một lần gọi worker (maxDuration = 300 s). */
 const STEP_BUDGET_MS = 250_000;
 
@@ -442,11 +444,17 @@ async function stepChunk(admin: Admin, jobId: string, idx?: number) {
     .order("idx");
   if (!chunks || chunks.length === 0) return;
 
-  // Được gọi riêng cho một đoạn đang chờ thử lại: đợi tới hạn (giãn cách do lỗi tạm thời) rồi mới nhận
+  // Được gọi riêng cho một đoạn đang chờ thử lại: đợi tới hạn (giãn cách do lỗi tạm thời) rồi mới nhận.
+  // Chờ lâu hơn ngân sách một lần gọi hàm thì ngủ một quãng rồi tự gọi lại worker cho đoạn đó.
   if (idx !== undefined) {
     const target = chunks.find((c) => c.idx === idx);
     const waitMs = target?.status === "pending" && target.next_attempt_at ? Date.parse(target.next_attempt_at) - Date.now() : 0;
-    if (waitMs > 0) await sleep(Math.min(waitMs + 250, MAX_RETRY_WAIT_MS));
+    if (waitMs > MAX_RETRY_WAIT_MS) {
+      await sleep(MAX_RETRY_WAIT_MS);
+      await triggerWorker(job.base_url ?? resolveBaseUrl(), { jobId, step: "chunk", idx });
+      return;
+    }
+    if (waitMs > 0) await sleep(waitMs + 250);
   }
 
   const firstDone = chunks[0].status === "done";
@@ -494,9 +502,11 @@ async function stepChunk(admin: Admin, jobId: string, idx?: number) {
       roster: chunk.idx > 0 ? analysis.roster : undefined,
     });
     const file: GeminiFileRef = { name: chunk.file_name!, uri: chunk.file_uri!, mimeType: chunk.mime_type ?? "audio/flac" };
+    // Mô hình chính quá tải liên tiếp → dùng mô hình dự phòng của kết nối (nếu có)
+    const model = chunkModel(conn, chunk.attempts, chunk.error);
     let callResult;
     try {
-      callResult = await transcribeWithGemini(ai, conn, file, prompt);
+      callResult = await transcribeWithGemini(ai, { ...conn, model }, file, prompt);
     } catch (err) {
       await markAuthFailure(conn, err);
       throw err;
@@ -520,7 +530,7 @@ async function stepChunk(admin: Admin, jobId: string, idx?: number) {
 
     await admin
       .from("transcription_chunks")
-      .update({ status: "done", result: { ...result, finishReason } as unknown as Json, error: null })
+      .update({ status: "done", result: { ...result, finishReason, model } as unknown as Json, error: null })
       .eq("job_id", jobId)
       .eq("idx", chunk.idx);
 
@@ -551,16 +561,21 @@ async function stepChunk(admin: Admin, jobId: string, idx?: number) {
     const message = err instanceof Error ? err.message : String(err);
     // chunk.attempts là số lần nhận TRƯỚC lần này (claim đã +1 trong CSDL)
     const attempts = chunk.attempts + 1;
-    if (attempts < MAX_CHUNK_ATTEMPTS) {
-      const waitMs = retryDelayMs(err, attempts);
+    const maxAttempts = maxAttemptsFor(err);
+    if (attempts < maxAttempts) {
+      const waitMs = retryDelayMs(err, attempts, RETRY_BASE_MS);
       // Trả đoạn về hàng chờ kèm hạn thử lại: worker khác không nhận sớm hơn hạn này
       await admin
         .from("transcription_chunks")
         .update({ status: "pending", error: message, next_attempt_at: new Date(Date.now() + waitMs).toISOString() })
         .eq("job_id", jobId)
         .eq("idx", chunk.idx);
+      const conn = await transcriptionConn(job).catch(() => null);
+      const next = conn ? chunkModel(conn, attempts, message) : null;
+      const reason = message.includes(GEMINI_OVERLOADED) ? `${GEMINI_OVERLOADED} — đoạn ${chunk.idx + 1}` : `Đoạn ${chunk.idx + 1} lỗi`;
+      const via = conn && next && next !== conn.model ? ` bằng mô hình dự phòng ${next}` : "";
       await patchJob(admin, jobId, {
-        stage: `Đoạn ${chunk.idx + 1} lỗi, thử lại sau ${Math.round(waitMs / 1000)} giây (${attempts}/${MAX_CHUNK_ATTEMPTS})…`,
+        stage: `${reason}, tự thử lại${via} sau ${Math.round(waitMs / 1000)} giây (${attempts}/${maxAttempts})…`,
       });
       await triggerWorker(base, { jobId, step: "chunk", idx: chunk.idx });
     } else {
@@ -569,20 +584,10 @@ async function stepChunk(admin: Admin, jobId: string, idx?: number) {
         .update({ status: "error", error: message })
         .eq("job_id", jobId)
         .eq("idx", chunk.idx);
-      throw new Error(`Đoạn ${chunk.idx + 1} phiên âm thất bại sau ${MAX_CHUNK_ATTEMPTS} lần: ${message}`);
+      const hint = isTransientError(err) ? " Bấm “Thử lại” sau ít phút, hoặc đặt mô hình dự phòng trong kết nối AI." : "";
+      throw new Error(`Đoạn ${chunk.idx + 1} phiên âm thất bại sau ${attempts} lần: ${message}.${hint}`);
     }
   }
-}
-
-/** Chờ tối đa trước khi thử lại một đoạn (nằm trong ngân sách thời gian của một lần gọi hàm). */
-const MAX_RETRY_WAIT_MS = 90_000;
-
-/** Giãn cách thử lại: 429 (giới hạn tần suất) chờ lâu hơn; tăng dần theo số lần. */
-export function retryDelayMs(err: unknown, attempt: number): number {
-  const rateLimited =
-    (err instanceof AiError && err.kind === "rate_limit") || /429|giới hạn|quota|exhausted/i.test(String(err));
-  const base = rateLimited ? 30_000 : 10_000;
-  return Math.min(base * 2 ** Math.max(0, attempt - 1), MAX_RETRY_WAIT_MS);
 }
 
 function rosterFromResult(plan: ChunkPlan, result: RawChunkResult): Speaker[] {
@@ -699,6 +704,14 @@ async function stepFinalize(admin: Admin, jobId: string) {
     duplicatesRemoved = merged.duplicatesRemoved;
     repetitionsTrimmed = merged.repetitionsTrimmed;
     if (outputs.some((o) => o.result.truncated)) warnings.push("Một số đoạn bị cắt cụt đầu ra — đã quét bổ sung.");
+    const viaFallback = main.filter((c) => {
+      const m = (c.result as { model?: string } | null)?.model;
+      return m && m !== job.model;
+    });
+    if (viaFallback.length) {
+      const models = [...new Set(viaFallback.map((c) => (c.result as { model?: string }).model))].join(", ");
+      warnings.push(`Đoạn ${viaFallback.map((c) => c.idx + 1).join(", ")} dùng mô hình dự phòng ${models} vì ${job.model} quá tải.`);
+    }
 
     // Quét khoảng trống: phần có tiếng nói nhưng chưa có chữ → phiên âm lại cửa sổ đó
     if (opts.gapFill !== false && analysis.speech?.length) {
@@ -717,21 +730,25 @@ async function stepFinalize(admin: Admin, jobId: string) {
           const chunk = main.find((c) => c.idx === w.plan.idx)!;
           const rel = { start: Math.max(0, w.gap.start - w.plan.start - 2), end: w.gap.end - w.plan.start + 2 };
           try {
-            const { result } = await transcribeWithGemini(
-              ai,
-              conn,
-              { name: chunk.file_name!, uri: chunk.file_uri!, mimeType: chunk.mime_type ?? "audio/flac" },
-              buildGapPrompt({
-                ctx,
-                chunkIndex: w.plan.idx,
-                chunkCount: plans.length,
-                absoluteStart: w.plan.start,
-                absoluteEnd: w.plan.end,
-                roster: speakers,
-                windowStart: rel.start,
-                windowEnd: rel.end,
-              }),
-            );
+            const gapFile = { name: chunk.file_name!, uri: chunk.file_uri!, mimeType: chunk.mime_type ?? "audio/flac" };
+            const gapPrompt = buildGapPrompt({
+              ctx,
+              chunkIndex: w.plan.idx,
+              chunkCount: plans.length,
+              absoluteStart: w.plan.start,
+              absoluteEnd: w.plan.end,
+              roster: speakers,
+              windowStart: rel.start,
+              windowEnd: rel.end,
+            });
+            const fallback = fallbackModelFor(conn);
+            const { result } = await transcribeWithGemini(ai, conn, gapFile, gapPrompt).catch((err) => {
+              // Mô hình chính quá tải → quét lại bằng mô hình dự phòng
+              if (fallback && err instanceof AiError && err.kind === "overloaded") {
+                return transcribeWithGemini(ai, { ...conn, model: fallback }, gapFile, gapPrompt);
+              }
+              throw err;
+            });
             const drafts = toAbsoluteSegments(w.plan, result, mapFor(w.plan.idx)).filter(
               (d) => parseTimecode(d.start) >= 0,
             );

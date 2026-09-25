@@ -87,10 +87,12 @@ Trạng thái tác vụ: `queued → preparing → transcribing → finalizing �
    - Các đoạn sau (tối đa 3 đoạn song song) nhận danh sách này kèm tên người tham dự và từ điển thuật ngữ.
    - Đầu ra là JSON theo schema: câu `{start, end, speaker, text}` và người nói.
    - JSON bị cắt ngang được sửa rồi gắn cờ.
-   - **Thử lại có giãn cách:**
-     - Đoạn lỗi được trả về hàng chờ kèm `next_attempt_at`. Chờ 10 s rồi 20 s; lỗi 429 thì 30 s rồi 60 s.
-     - SQL không cho worker nào nhận đoạn trước hạn đó.
-     - Sau 3 lần vẫn lỗi thì tác vụ báo lỗi. Nút "Thử lại" chỉ xử lý tiếp các đoạn lỗi, giữ nguyên các đoạn đã xong.
+   - **Thử lại có giãn cách** (`src/lib/transcription/retry.ts`):
+     - Đoạn lỗi được trả về hàng chờ kèm `next_attempt_at`; SQL không cho worker nào nhận đoạn trước hạn đó. Chờ lâu hơn 90 s thì worker ngủ một quãng rồi tự gọi lại chính nó.
+     - Lỗi nhất thời (Gemini quá tải 503 "high demand", 429, lỗi mạng): tới 8 lần, chờ 15 s → 30 s → 1 → 2 → 3 phút (~13 phút). Lỗi khác (đầu ra rỗng, JSON hỏng): 3 lần, chờ 10 s rồi 20 s.
+     - **Mô hình dự phòng:** kết nối có thể khai báo `fallbackModel`. Mô hình chính quá tải 2 lần thì đoạn đó chuyển sang mô hình dự phòng (quét bổ sung, đặt tên người nói, soạn văn bản cũng vậy); transcript ghi chú đoạn nào dùng dự phòng.
+     - Hết lượt vẫn lỗi thì tác vụ báo lỗi. Nút "Thử lại" chỉ xử lý tiếp các đoạn lỗi, giữ nguyên các đoạn đã xong.
+     - Lỗi nhất thời khi "Kiểm tra kết nối" chỉ được ghi lại, không đánh dấu kết nối hỏng (chỉ lỗi khoá 401/403 hay mô hình sai mới làm vậy).
 3. **finalize**
    - Ghép các đoạn:
      - chuyển mốc thời gian về tuyệt đối
@@ -188,4 +190,4 @@ Trạng thái tác vụ: `queued → preparing → transcribing → finalizing �
 | Đơn vị | `npm test` | Ghép đoạn, chồng lấn, độ phủ, khoảng lặng, thống nhất người nói, Soniox → câu, sửa JSON, trích dẫn, DOCX, mã hoá |
 | CSDL | `scripts/test-db.sh` | Migration + kiểm thử RLS, RPC và hàm giành quyền trên PostgreSQL 16 |
 | Kiểu/lint | `npm run typecheck`, `npm run lint` | TypeScript strict, ESLint (Next + React Compiler rules) |
-| Pipeline e2e | `tests/e2e/run.sh` | Dữ liệu tổng hợp 25 phút + máy chủ giả lập Google/Gemini/Soniox. Kiểm tra: chia đoạn, thử lại khi lỗi, quét bổ sung, đặt tên người nói, hiệu đính có kiểm chứng, bản máy gốc, tự tạo biên bản |
+| Pipeline e2e | `tests/e2e/run.sh` | Dữ liệu tổng hợp 25 phút + máy chủ giả lập Google/Gemini/Soniox/Storage. Kiểm tra: chia đoạn, thử lại khi lỗi, Gemini quá tải 503 → mô hình dự phòng, quét bổ sung, đặt tên người nói, hiệu đính có kiểm chứng, bản máy gốc, tự tạo biên bản, phiên âm không lưu tệp |

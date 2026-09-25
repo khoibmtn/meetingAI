@@ -275,6 +275,31 @@ export function ConnectionEditor({
                 <span className="text-xs text-muted-foreground">— hoặc bấm “Tải danh sách mô hình” để lấy các phiên bản mới nhất.</span>
               </div>
             )}
+            {provider === "gemini" ? (
+              <div className="space-y-1.5 border-t pt-2">
+                <Label htmlFor="fallback-model" className="text-xs">
+                  Mô hình dự phòng khi quá tải (tuỳ chọn)
+                </Label>
+                <Input
+                  id="fallback-model"
+                  list="fallback-model-options"
+                  value={params.fallbackModel ?? ""}
+                  onChange={(e) => setP("fallbackModel", e.target.value.trim() || null)}
+                  placeholder="vd gemini-2.5-flash"
+                  className="h-8 font-mono text-sm"
+                />
+                <datalist id="fallback-model-options">
+                  {(models?.map((m) => m.id) ?? info.suggestedModels)
+                    .filter((id) => id !== model)
+                    .map((id) => (
+                      <option key={id} value={id} />
+                    ))}
+                </datalist>
+                <p className="text-xs text-muted-foreground">
+                  Khi mô hình chính báo quá tải (503 “high demand”) nhiều lần, hệ thống tự chuyển sang mô hình này để phiên âm và soạn văn bản không bị gián đoạn.
+                </p>
+              </div>
+            ) : null}
           </div>
 
           {/* Tham số */}
