@@ -30,7 +30,7 @@ import { formatBytes } from "@/lib/utils";
 
 const ACCEPT = "audio/*,video/mp4,video/webm,.m4a,.mp3,.wav,.aac,.ogg,.opus,.flac,.webm,.amr,.wma,.mp4";
 
-export function NewRecordingForm({ initialMode }: { initialMode: "upload" | "record" }) {
+export function NewRecordingForm({ initialMode, storageReady = true }: { initialMode: "upload" | "record"; storageReady?: boolean }) {
   const router = useRouter();
   const profile = useProfile();
   const { state: conns } = useConnections();
@@ -375,7 +375,7 @@ export function NewRecordingForm({ initialMode }: { initialMode: "upload" | "rec
               </div>
             ) : null}
             <div className="flex gap-2">
-              <Button type="submit" className="h-10 flex-1" disabled={busy || !file}>
+              <Button type="submit" className="h-10 flex-1" disabled={busy || !file || !storageReady} title={storageReady ? undefined : "Chưa kết nối Google Drive"}>
                 {busy ? "Đang xử lý…" : transcribe ? "Lưu & phiên âm" : "Lưu bản ghi"}
               </Button>
               {busy ? (

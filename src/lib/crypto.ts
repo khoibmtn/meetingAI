@@ -27,12 +27,13 @@ export function encryptSecret(plain: string): string {
 export function decryptSecret(payload: string): string {
   const [ver, ivB64, tagB64, ctB64] = payload.split(".");
   if (ver !== "v1" || !ivB64 || !tagB64 || !ctB64) throw new Error("Dữ liệu mã hoá không hợp lệ");
-  const decipher = createDecipheriv("aes-256-gcm", key(), Buffer.from(ivB64, "base64url"));
-  decipher.setAuthTag(Buffer.from(tagB64, "base64url"));
-  return Buffer.concat([
-    decipher.update(Buffer.from(ctB64, "base64url")),
-    decipher.final(),
-  ]).toString("utf8");
+  try {
+    const decipher = createDecipheriv("aes-256-gcm", key(), Buffer.from(ivB64, "base64url"));
+    decipher.setAuthTag(Buffer.from(tagB64, "base64url"));
+    return Buffer.concat([decipher.update(Buffer.from(ctB64, "base64url")), decipher.final()]).toString("utf8");
+  } catch {
+    throw new Error("Không giải mã được khoá đã lưu (APP_ENCRYPTION_KEY có thể đã thay đổi) — hãy nhập lại khoá");
+  }
 }
 
 /** Gợi ý hiển thị khoá: "…a1B2" */

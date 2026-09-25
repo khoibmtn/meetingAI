@@ -14,3 +14,12 @@ export function useMediaQuery(query: string): boolean | null {
     () => null,
   );
 }
+
+/** window.location.origin phía client ("" khi render server) — tránh lệch hydrate. */
+export function useOrigin(): string {
+  return useSyncExternalStore(
+    () => () => {},
+    () => window.location.origin,
+    () => "",
+  );
+}

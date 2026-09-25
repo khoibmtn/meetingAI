@@ -26,7 +26,8 @@ export function PlayerProvider({ src, initialDuration, children }: { src: string
   const [playing, setPlaying] = useState(false);
   const [rate, setRateState] = useState(1);
   const [ready, setReady] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [errorState, setErrorState] = useState<{ src: string; message: string } | null>(null);
+  const error = errorState && errorState.src === src ? errorState.message : null;
 
   useEffect(() => {
     const a = audioRef.current;
@@ -38,7 +39,14 @@ export function PlayerProvider({ src, initialDuration, children }: { src: string
     };
     const onPlay = () => setPlaying(true);
     const onPause = () => setPlaying(false);
-    const onErr = () => setError("Không phát được âm thanh (kiểm tra kết nối Google Drive)");
+    const onErr = () => {
+      const code = a.error?.code;
+      const report = (message: string) => setErrorState({ src: a.currentSrc || src || "", message });
+      if (code === MediaError.MEDIA_ERR_NETWORK) return report("Mất kết nối khi tải âm thanh — thử tải lại trang.");
+      if (code === MediaError.MEDIA_ERR_DECODE) return report("Tệp âm thanh bị lỗi giải mã.");
+      // SRC_NOT_SUPPORTED: có thể do máy chủ trả lỗi (Drive chưa kết nối, hết quyền) hoặc trình duyệt không hỗ trợ codec.
+      diagnoseAudioSource(a.currentSrc || src || "").then(report);
+    };
     a.addEventListener("timeupdate", onTime);
     a.addEventListener("loadedmetadata", onMeta);
     a.addEventListener("play", onPlay);
@@ -105,6 +113,22 @@ export function PlayerProvider({ src, initialDuration, children }: { src: string
       {children}
     </Ctx.Provider>
   );
+}
+
+/** Phân biệt lỗi máy chủ (Drive) với lỗi codec để thông báo đúng nguyên nhân. */
+async function diagnoseAudioSource(url: string): Promise<string> {
+  try {
+    const res = await fetch(url, { headers: { Range: "bytes=0-1" } });
+    if (!res.ok) {
+      const text = (await res.text().catch(() => "")).trim();
+      return `Không tải được âm thanh: ${text.slice(0, 240) || `HTTP ${res.status}`}`;
+    }
+    const type = res.headers.get("content-type") ?? "";
+    await res.body?.cancel().catch(() => {});
+    return `Trình duyệt này không phát được định dạng ${type || "âm thanh"} — hãy dùng Chrome, Edge hoặc Safari bản mới.`;
+  } catch {
+    return "Không tải được âm thanh — kiểm tra kết nối mạng.";
+  }
 }
 
 export function usePlayer(): PlayerState {

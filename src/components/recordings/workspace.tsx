@@ -26,6 +26,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { EmptyState } from "@/components/ui/empty-state";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -144,7 +146,20 @@ function WorkspaceInner({ recording, transcript, job, reports, customTemplates, 
       onAddSpeaker={t.addSpeaker}
       onAddNoteAt={addNoteAt}
     />
-  ) : jobActive ? null : (
+  ) : jobActive ? (
+    <div className="space-y-4 p-2" aria-busy="true">
+      <p className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Spinner /> Transcript sẽ tự hiện khi phiên âm xong — có thể rời trang, máy chủ vẫn xử lý.
+      </p>
+      {Array.from({ length: 4 }, (_, i) => (
+        <div key={i} className="space-y-2">
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-4/5" />
+        </div>
+      ))}
+    </div>
+  ) : (
     <EmptyState
       icon={<ScrollTextIcon />}
       title={recording.upload_status !== "uploaded" ? "Tệp âm thanh chưa tải lên xong" : "Chưa có transcript"}

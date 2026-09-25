@@ -340,6 +340,21 @@ create index transcripts_search_trgm on public.transcripts using gin (search_tex
 create trigger transcripts_updated_at before update on public.transcripts
   for each row execute function public.set_updated_at();
 
+-- Chuẩn hoá search_text (bỏ dấu, chữ thường) bất kể nơi ghi — tìm kiếm không dấu luôn khớp.
+create or replace function public.normalize_transcript_search()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+begin
+  new.search_text := public.f_unaccent(new.search_text);
+  return new;
+end;
+$$;
+
+create trigger transcripts_normalize_search before insert or update of search_text on public.transcripts
+  for each row execute function public.normalize_transcript_search();
+
 create table public.transcription_jobs (
   id uuid primary key default gen_random_uuid(),
   recording_id uuid not null references public.recordings (id) on delete cascade,

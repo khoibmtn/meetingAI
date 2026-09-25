@@ -27,7 +27,11 @@ insert into public.recordings (id, owner_id, title) values
   ('10000000-0000-0000-0000-000000000001', '00000000-0000-0000-0000-00000000000a', 'Giao ban khoa GMHS');
 reset role;
 insert into public.transcripts (recording_id, segments, search_text)
-values ('10000000-0000-0000-0000-000000000001', '[{"id":"s1","start":0,"end":3,"speaker":"S1","text":"Xin chào"}]', 'xin chao gay me hoi suc');
+values ('10000000-0000-0000-0000-000000000001', '[{"id":"s1","start":0,"end":3,"speaker":"S1","text":"Xin chào"}]', 'Xin chào Gây mê Hồi sức, đặt nội khí quản');
+do $$ begin
+  assert (select search_text from public.transcripts where recording_id = '10000000-0000-0000-0000-000000000001')
+    = 'xin chao gay me hoi suc, dat noi khi quan', 'search_text phai duoc chuan hoa bo dau';
+end $$;
 
 -- B chưa thấy
 select pg_temp.as_user('00000000-0000-0000-0000-00000000000b');

@@ -76,6 +76,7 @@ export function NotesPanel({
   }
 
   async function remove(id: string) {
+    if (!window.confirm("Xoá ghi chú này?")) return;
     const { error } = await createClient().from("notes").delete().eq("id", id);
     if (error) return toast.error(error.message);
     setNotes((n) => n.filter((x) => x.id !== id));

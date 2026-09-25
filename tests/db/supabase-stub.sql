@@ -15,10 +15,21 @@ create table auth.users (
   raw_user_meta_data jsonb not null default '{}'::jsonb
 );
 create function auth.uid() returns uuid language sql stable as $$
-  select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid
+  select coalesce(
+    nullif(current_setting('request.jwt.claim.sub', true), ''),
+    nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub'
+  )::uuid
 $$;
 grant execute on function auth.uid() to anon, authenticated, service_role;
 alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
 alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
 alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
 create publication supabase_realtime;
+-- Vai trò đăng nhập của PostgREST (chỉ dùng cho kiểm thử e2e cục bộ)
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'authenticator') then
+    create role authenticator login noinherit password 'authenticator';
+  end if;
+end $$;
+grant anon, authenticated, service_role to authenticator;

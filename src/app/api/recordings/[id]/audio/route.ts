@@ -46,8 +46,14 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     range = `bytes=${start}-${end}`;
   }
 
-  const upstream = await fetchDriveMedia(recording.drive_file_id, range, request.signal).catch(() => null);
-  if (!upstream || !upstream.body) return new Response("Không đọc được tệp từ Google Drive", { status: 502 });
+  let upstream: Response;
+  try {
+    upstream = await fetchDriveMedia(recording.drive_file_id, range, request.signal);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Không đọc được tệp từ Google Drive";
+    return new Response(message, { status: 502, headers: { "Content-Type": "text/plain; charset=utf-8" } });
+  }
+  if (!upstream.body) return new Response("Google Drive không trả về dữ liệu", { status: 502 });
 
   const headers = new Headers({
     "Content-Type": recording.mime_type || upstream.headers.get("content-type") || "audio/mpeg",

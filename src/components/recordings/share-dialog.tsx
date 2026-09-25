@@ -117,6 +117,7 @@ export function ShareDialog({ recordingId, recordingTitle, isOwner }: { recordin
   }
 
   async function unshare(id: string) {
+    if (!window.confirm("Ngừng chia sẻ bản ghi với đối tượng này?")) return;
     const { error } = await createClient().from("recording_shares").delete().eq("id", id);
     if (error) return toast.error(error.message);
     load();

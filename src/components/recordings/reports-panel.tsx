@@ -190,11 +190,13 @@ export function ReportsPanel({
     const canModify = current.created_by === profile.id || canEdit;
     return (
       <div className="flex min-h-0 flex-col gap-3">
-        <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" variant="ghost" onClick={() => setOpenId(null)}>
-            <ArrowLeftIcon /> Danh sách
+        <div className="flex items-start gap-1">
+          <Button size="icon-sm" variant="ghost" onClick={() => setOpenId(null)} aria-label="Về danh sách văn bản" title="Về danh sách">
+            <ArrowLeftIcon />
           </Button>
-          <div className="min-w-0 flex-1 truncate font-semibold">{current.title}</div>
+          <div className="min-w-0 flex-1 pt-1 leading-snug font-semibold">{current.title}</div>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {streaming ? (
             <Button size="sm" variant="outline" onClick={() => abortRef.current?.abort()}>
               <SquareIcon /> Dừng xem trực tiếp

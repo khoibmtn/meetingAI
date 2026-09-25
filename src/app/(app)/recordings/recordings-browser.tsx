@@ -117,7 +117,9 @@ export function RecordingsBrowser({ items }: { items: RecordingListItem[] }) {
       </div>
 
       {filtered.length === 0 ? (
-        <p className="py-10 text-center text-sm text-muted-foreground">Không có bản ghi phù hợp.</p>
+        <p className="py-10 text-center text-sm text-muted-foreground">
+          {trimmed.length >= 2 && !contentHits ? "Đang tìm trong nội dung transcript…" : "Không có bản ghi phù hợp."}
+        </p>
       ) : (
         <ul className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {filtered.map((r) => (

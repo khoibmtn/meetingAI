@@ -41,9 +41,11 @@ export function ConnectionSelect({
       <SelectContent>
         {options.map((c) => (
           <SelectItem key={c.id} value={c.id}>
-            <span className="truncate">{c.name}</span>
-            <span className="ml-1 text-xs text-muted-foreground">
-              · {PROVIDERS[c.provider].label.split(" ")[0]} · {c.model}
+            <span className="min-w-0 truncate">
+              {c.name}
+              <span className="ml-1 text-xs text-muted-foreground">
+                · {PROVIDERS[c.provider].label.split(" ")[0]} · {c.model}
+              </span>
             </span>
           </SelectItem>
         ))}

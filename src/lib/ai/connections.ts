@@ -38,12 +38,20 @@ export function toSummary(row: Row, userId?: string): ConnectionSummary {
 }
 
 function rowToConfig(row: Row): ConnectionConfig {
+  let apiKey: string;
+  try {
+    apiKey = decryptSecret(row.encrypted_key);
+  } catch {
+    throw new Error(
+      `Không giải mã được khoá API của kết nối “${row.name}” (APP_ENCRYPTION_KEY có thể đã thay đổi). Hãy sửa kết nối và nhập lại khoá.`,
+    );
+  }
   return {
     id: row.id,
     name: row.name,
     provider: row.provider as ProviderKind,
     baseUrl: row.base_url,
-    apiKey: decryptSecret(row.encrypted_key),
+    apiKey,
     model: row.model,
     params: (row.params as ModelParams) ?? {},
   };

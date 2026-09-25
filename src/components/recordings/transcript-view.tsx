@@ -153,11 +153,11 @@ export function TranscriptView(props: Props) {
           </div>
         ) : null}
         <Button size="sm" variant={follow ? "secondary" : "ghost"} onClick={() => setFollow((f) => !f)} title="Tự cuộn theo âm thanh">
-          <CrosshairIcon /> Theo dõi
+          <CrosshairIcon /> <span className="max-sm:sr-only">Theo dõi</span>
         </Button>
         {canEdit ? (
           <Button size="sm" variant={editMode ? "default" : "ghost"} onClick={() => setEditMode((v) => !v)}>
-            <PencilIcon /> {editMode ? "Đang hiệu đính" : "Hiệu đính"}
+            <PencilIcon /> <span className="max-sm:sr-only">{editMode ? "Đang hiệu đính" : "Hiệu đính"}</span>
           </Button>
         ) : null}
         {props.saving ? <span className="text-xs text-muted-foreground">Đang lưu…</span> : null}

@@ -91,6 +91,13 @@ async function refreshToken(): Promise<string> {
   return decryptSecret(s.refresh_token_enc);
 }
 
+/** Đã có kết nối Drive (biến môi trường hoặc quản trị viên đã kết nối) — không gọi mạng. */
+export async function isDriveConfigured(): Promise<boolean> {
+  if (serverEnv.driveRefreshToken()) return true;
+  const s = await getSetting<DriveSettings>("drive");
+  return Boolean(s?.refresh_token_enc);
+}
+
 export async function getAccessToken(): Promise<string> {
   const refresh = await refreshToken();
   if (cachedToken && cachedToken.refresh === refresh && cachedToken.expiresAt > Date.now() + 60_000) {
