@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ApiError } from "@google/genai";
-import { AiError, GEMINI_OVERLOADED } from "@/lib/ai/types";
+import { AiError, GEMINI_OVERLOADED, GEMINI_RATE_LIMITED } from "@/lib/ai/types";
 import { mapGeminiError } from "@/lib/ai/providers/gemini";
 import { chunkModel, isTransientError, maxAttemptsFor, MAX_TRANSIENT_WAIT_MS, retryDelayMs } from "./retry";
 
@@ -17,6 +17,16 @@ describe("lỗi Gemini", () => {
     const e500 = mapGeminiError(new ApiError({ message: "Internal", status: 500 }));
     expect([e500.kind, e500.retryable, e500.message]).toEqual(["unavailable", true, "Dịch vụ Gemini tạm thời lỗi (HTTP 500)"]);
     expect(mapGeminiError(new ApiError({ message: "denied", status: 401 })).kind).toBe("auth");
+  });
+
+  it("403 do TỆP không còn (hết hạn / khoá dự án khác) ≠ sai khoá", () => {
+    const gone = mapGeminiError(
+      new ApiError({ message: "You do not have permission to access the File qk0olzgyh0u3 or it may not exist.", status: 403 }),
+    );
+    expect([gone.kind, gone.retryable]).toEqual(["file_missing", true]);
+    expect(mapGeminiError(new ApiError({ message: "API key not valid. Please pass a valid API key.", status: 403 })).kind).toBe("auth");
+    const limited = mapGeminiError(new ApiError({ message: "Resource has been exhausted", status: 429 }));
+    expect([limited.kind, limited.message.startsWith(GEMINI_RATE_LIMITED)]).toEqual(["rate_limit", true]);
   });
 });
 
@@ -47,6 +57,9 @@ describe("chính sách thử lại một đoạn", () => {
     expect(chunkModel(conn, 1, overloaded.message)).toBe("gemini-3.8-flash");
     expect(chunkModel(conn, 2, overloaded.message)).toBe("gemini-2.5-flash");
     expect(chunkModel(conn, 5, overloaded.message)).toBe("gemini-2.5-flash");
+    // Hết lượt (429) cũng chuyển; đoạn khác vừa dùng dự phòng → dùng luôn từ lần đầu
+    expect(chunkModel(conn, 2, "Gemini đang giới hạn tần suất (429) — thử lại sau")).toBe("gemini-2.5-flash");
+    expect(chunkModel(conn, 0, null, true)).toBe("gemini-2.5-flash");
     // Lỗi khác, hoặc không cấu hình dự phòng, hoặc dự phòng trùng mô hình chính → giữ mô hình chính
     expect(chunkModel(conn, 2, "Gemini trả về kết quả rỗng")).toBe("gemini-3.8-flash");
     expect(chunkModel({ model: "gemini-3.8-flash", params: {} }, 3, overloaded.message)).toBe("gemini-3.8-flash");

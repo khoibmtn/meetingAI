@@ -65,7 +65,7 @@ POSTGREST_URL=http://127.0.0.1:3001 DATABASE_URL="$E2E_DB_URL" STORAGE_DIR="$OUT
   node tests/e2e/gateway.mjs > "$OUT/gateway.log" 2>&1 &
 PIDS+=($!)
 AUDIO="$OUT/audio.m4a" GT="$OUT/gt.json" OMIT="1:60:150" FAIL_ONCE="2:500" LATENCY_MS=300 \
-  OVERLOAD="gemini-3.8-flash:0:2" OVERLOAD_MODELS="gemini-9-overloaded" \
+  OVERLOAD="gemini-3.8-flash:0:2" OVERLOAD_MODELS="gemini-9-overloaded" FILE_GONE="1" \
   node tests/e2e/mock-google.mjs > "$OUT/mock.log" 2>&1 &
 PIDS+=($!)
 wait_for http://127.0.0.1:54321/auth/v1/settings gateway

@@ -36,7 +36,15 @@ export interface JsonRequest extends TextRequest {
 export class AiError extends Error {
   constructor(
     message: string,
-    public readonly kind: "auth" | "rate_limit" | "refusal" | "bad_request" | "unavailable" | "overloaded" | "unknown" = "unknown",
+    public readonly kind:
+      | "auth"
+      | "rate_limit"
+      | "refusal"
+      | "bad_request"
+      | "unavailable"
+      | "overloaded"
+      | "file_missing"
+      | "unknown" = "unknown",
     public readonly retryable = false,
   ) {
     super(message);
@@ -51,6 +59,19 @@ export function effectiveParams(req: TextRequest, fallbackMax: number): ModelPar
 
 /** Thông báo khi Gemini trả 503 "high demand" — cũng dùng để nhận diện lại từ lỗi đã lưu trong CSDL. */
 export const GEMINI_OVERLOADED = "Gemini đang quá tải";
+/** Thông báo khi Gemini trả 429 (hết lượt/giới hạn tần suất của mô hình). */
+export const GEMINI_RATE_LIMITED = "Gemini đang giới hạn tần suất";
+/** Tệp đã tải lên Files API không còn dùng được (hết hạn 48 giờ, hoặc khoá API thuộc dự án khác). */
+export const GEMINI_FILE_MISSING = "Tệp âm thanh trên Gemini không còn";
+
+/** Lỗi do mô hình hết năng lực phục vụ (quá tải/giới hạn tần suất) — đổi sang mô hình khác có thể qua được. */
+export function isCapacityError(err: unknown): boolean {
+  return err instanceof AiError && (err.kind === "overloaded" || err.kind === "rate_limit");
+}
+
+export function isCapacityMessage(message: string | null | undefined): boolean {
+  return !!message && (message.includes(GEMINI_OVERLOADED) || message.includes(GEMINI_RATE_LIMITED));
+}
 
 /** Mô hình dự phòng cấu hình trong kết nối (khác mô hình chính), dùng khi mô hình chính quá tải. */
 export function fallbackModelFor(conn: Pick<ConnectionConfig, "model" | "params">): string | null {

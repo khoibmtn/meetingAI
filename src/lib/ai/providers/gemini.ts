@@ -5,7 +5,10 @@ import {
   AiError,
   effectiveParams,
   fallbackModelFor,
+  GEMINI_FILE_MISSING,
   GEMINI_OVERLOADED,
+  GEMINI_RATE_LIMITED,
+  isCapacityError,
   type ConnectionConfig,
   type JsonRequest,
   type TextRequest,
@@ -66,8 +69,12 @@ export function geminiConfig(req: TextRequest, fallbackMax: number): GenerateCon
 export function mapGeminiError(err: unknown): AiError {
   if (err instanceof ApiError) {
     const status = err.status;
+    // 403/404 cho TỆP (không phải khoá): tệp Files API hết hạn hoặc thuộc dự án của khoá khác → tải lại tệp là được
+    if ((status === 403 || status === 404) && /access the File|File .*(not exist|not found)|may not exist/i.test(err.message)) {
+      return new AiError(`${GEMINI_FILE_MISSING} (hết hạn sau 48 giờ, hoặc khoá API đã đổi sang dự án khác)`, "file_missing", true);
+    }
     if (status === 401 || status === 403) return new AiError("Khoá API Gemini không hợp lệ hoặc không có quyền", "auth");
-    if (status === 429) return new AiError("Gemini đang giới hạn tần suất (429) — thử lại sau", "rate_limit", true);
+    if (status === 429) return new AiError(`${GEMINI_RATE_LIMITED} (429) — thử lại sau`, "rate_limit", true);
     if (status === 400) return new AiError(`Yêu cầu Gemini không hợp lệ: ${err.message}`, "bad_request");
     if (status === 404) return new AiError(`Không tìm thấy mô hình Gemini: ${err.message}`, "bad_request");
     if (status === 503) {
@@ -111,8 +118,8 @@ export async function* geminiStreamText(req: TextRequest): AsyncGenerator<string
       return;
     } catch (err) {
       const mapped = mapGeminiError(err);
-      // Quá tải trước khi có chữ nào → chuyển sang mô hình dự phòng
-      if (mapped.kind === "overloaded" && !yielded && i < attempts.length - 1) continue;
+      // Quá tải / hết lượt trước khi có chữ nào → chuyển sang mô hình dự phòng
+      if (isCapacityError(mapped) && !yielded && i < attempts.length - 1) continue;
       throw mapped;
     }
   }
@@ -136,7 +143,7 @@ export async function geminiGenerateJson<T>(req: JsonRequest): Promise<T> {
       for await (const chunk of stream) text += chunk.text ?? "";
     } catch (err) {
       const mapped = mapGeminiError(err);
-      if (mapped.kind === "overloaded" && i < attempts.length - 1) continue;
+      if (isCapacityError(mapped) && i < attempts.length - 1) continue;
       throw mapped;
     }
     return JSON.parse(text) as T;

@@ -12,6 +12,7 @@
 //   FAIL_COUNT="1:500:3" → đoạn idx 1 lỗi liên tiếp 3 lần
 //   OVERLOAD="gemini-3.8-flash:0:2" → mô hình đó, đoạn idx 0: 2 lần gọi đầu trả 503 "high demand" (kiểm tra mô hình dự phòng)
 //   OVERLOAD_MODELS="gemini-9-overloaded" → mọi lời gọi tới các mô hình này trả 503 "high demand"
+//   FILE_GONE="1"        → lần gọi đầu của đoạn idx 1 trả 403 "không truy cập được File" (tệp hết hạn/khoá khác)
 import http from "node:http";
 import fs from "node:fs";
 
@@ -36,6 +37,8 @@ const OVERLOAD = (process.env.OVERLOAD ?? "")
     return { model, idx: Number(idx), n: Number(n) };
   });
 const OVERLOAD_MODELS = (process.env.OVERLOAD_MODELS ?? "").split(",").filter(Boolean);
+const FILE_GONE = (process.env.FILE_GONE ?? "").split(",").filter(Boolean).map(Number);
+const filesGone = new Set();
 const overloads = new Map();
 
 const files = new Map();
@@ -154,6 +157,16 @@ function injectedFailure(body) {
   return null;
 }
 
+function injectedFileGone(body) {
+  const all = JSON.stringify(body.contents ?? "");
+  const part = /PHẦN (\d+)\/(\d+)/.exec(all);
+  if (!part || all.includes("CHỈ phiên âm phần")) return null;
+  const idx = Number(part[1]) - 1;
+  if (!FILE_GONE.includes(idx) || filesGone.has(idx)) return null;
+  filesGone.add(idx);
+  return /files\/([\w-]+)/.exec(all)?.[1] ?? "unknown";
+}
+
 function injectedOverload(model, body) {
   if (OVERLOAD_MODELS.includes(model)) return true;
   const all = JSON.stringify(body.contents ?? "");
@@ -252,6 +265,13 @@ const server = http.createServer(async (req, res) => {
         log(`QUÁ TẢI 503 (${gm[1]})`);
         return json(res, 503, {
           error: { code: 503, message: "This model is currently experiencing high demand. Spikes in demand are usually temporary. Please try again later.", status: "UNAVAILABLE" },
+        });
+      }
+      const gone = injectedFileGone(body);
+      if (gone) {
+        log(`TỆP KHÔNG CÒN 403 (${gone})`);
+        return json(res, 403, {
+          error: { code: 403, message: `You do not have permission to access the File ${gone} or it may not exist.`, status: "PERMISSION_DENIED" },
         });
       }
       const code = injectedFailure(body);

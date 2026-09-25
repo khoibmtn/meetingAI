@@ -30,8 +30,8 @@ import {
 } from "@/lib/audio/ffmpeg";
 import { generateJson, type ConnectionConfig } from "@/lib/ai";
 import { getConnectionConfig, markAuthFailure, requireConnection, resolveConnection } from "@/lib/ai/connections";
-import { AiError, fallbackModelFor, GEMINI_OVERLOADED } from "@/lib/ai/types";
-import { chunkModel, isTransientError, maxAttemptsFor, MAX_RETRY_WAIT_MS, retryDelayMs } from "./retry";
+import { AiError, fallbackModelFor, GEMINI_OVERLOADED, GEMINI_RATE_LIMITED, isCapacityError } from "@/lib/ai/types";
+import { chunkModel, FALLBACK_STICKY_MS, isTransientError, maxAttemptsFor, MAX_RETRY_WAIT_MS, retryDelayMs } from "./retry";
 import { serverEnv } from "@/lib/env";
 import { sleep, stripDiacritics } from "@/lib/utils";
 import { planChunks } from "./chunking";
@@ -87,6 +87,8 @@ interface JobAnalysis {
   roster?: Speaker[];
   soniox?: { fileId: string; transcriptionId: string };
   warnings?: string[];
+  /** Lúc một đoạn phải chuyển sang mô hình dự phòng — các đoạn sau dùng luôn dự phòng. */
+  fallbackSince?: string;
 }
 
 type Job = Tables<"transcription_jobs">;
@@ -232,6 +234,37 @@ async function openTempOriginal(dir: string, recordingId: string, sizeBytes: num
   const localPath = path.join(dir, "original");
   await downloadTempAudio(recordingId, localPath, sizeBytes);
   return { src: { input: localPath }, localPath };
+}
+
+/**
+ * Tệp đoạn trên Gemini không còn (Files API chỉ giữ 48 giờ; hoặc khoá API đã đổi sang dự án khác):
+ * mã hoá lại đúng đoạn đó từ tệp gốc, tải lên lại và cập nhật tham chiếu của đoạn.
+ */
+async function refreshChunkFile(
+  admin: Admin,
+  job: Job,
+  recording: Recording,
+  chunk: Tables<"transcription_chunks">,
+  conn: ConnectionConfig,
+): Promise<GeminiFileRef> {
+  await patchJob(admin, job.id, { stage: `Tệp âm thanh đoạn ${chunk.idx + 1} trên Gemini không còn — đang tải lại từ tệp gốc` });
+  return withTempDir(async (dir) => {
+    const onDrive = Boolean(recording.drive_file_id) && recording.upload_status === "uploaded";
+    const sizeBytes = Number(recording.size_bytes ?? 0);
+    const { src } = onDrive
+      ? await openOriginal(dir, recording.drive_file_id!, sizeBytes)
+      : await openTempOriginal(dir, recording.id, sizeBytes);
+    const out = path.join(dir, `chunk-${chunk.idx}.flac`);
+    await encodeChunk(src, Number(chunk.start_sec), Number(chunk.end_sec), out, encodeOptions(jobOptions(job), jobAnalysis(job).meanVolumeDb ?? null));
+    const ref = await uploadToGemini(createGemini(conn), out, "audio/flac", `rec-${recording.id}-chunk-${chunk.idx}`);
+    await admin
+      .from("transcription_chunks")
+      .update({ file_uri: ref.uri, file_name: ref.name, mime_type: ref.mimeType })
+      .eq("job_id", job.id)
+      .eq("kind", chunk.kind)
+      .eq("idx", chunk.idx);
+    return ref;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -502,16 +535,28 @@ async function stepChunk(admin: Admin, jobId: string, idx?: number) {
       roster: chunk.idx > 0 ? analysis.roster : undefined,
     });
     const file: GeminiFileRef = { name: chunk.file_name!, uri: chunk.file_uri!, mimeType: chunk.mime_type ?? "audio/flac" };
-    // Mô hình chính quá tải liên tiếp → dùng mô hình dự phòng của kết nối (nếu có)
-    const model = chunkModel(conn, chunk.attempts, chunk.error);
+    // Mô hình chính quá tải / hết lượt → dùng mô hình dự phòng của kết nối (nếu có); đoạn khác vừa phải
+    // chuyển sang dự phòng thì đoạn này dùng luôn, khỏi chờ lỗi lại
+    const preferFallback = !!analysis.fallbackSince && Date.now() - Date.parse(analysis.fallbackSince) < FALLBACK_STICKY_MS;
+    const model = chunkModel(conn, chunk.attempts, chunk.error, preferFallback);
+    const call = (f: GeminiFileRef) => transcribeWithGemini(ai, { ...conn, model }, f, prompt);
+    let reuploaded = false;
     let callResult;
     try {
-      callResult = await transcribeWithGemini(ai, { ...conn, model }, file, prompt);
+      callResult = await call(file).catch(async (err) => {
+        // Tệp đoạn trên Gemini không còn → tải lại từ tệp gốc rồi gọi lại ngay
+        if (!(err instanceof AiError && err.kind === "file_missing")) throw err;
+        reuploaded = true;
+        return call(await refreshChunkFile(admin, job, recording, chunk, conn));
+      });
     } catch (err) {
       await markAuthFailure(conn, err);
       throw err;
     }
     const { result, finishReason } = callResult;
+    if (model !== conn.model && !preferFallback) {
+      await patchAnalysis(admin, jobId, { fallbackSince: new Date().toISOString() });
+    }
 
     const plan: ChunkPlan = {
       idx: chunk.idx,
@@ -530,7 +575,7 @@ async function stepChunk(admin: Admin, jobId: string, idx?: number) {
 
     await admin
       .from("transcription_chunks")
-      .update({ status: "done", result: { ...result, finishReason, model } as unknown as Json, error: null })
+      .update({ status: "done", result: { ...result, finishReason, model, reuploaded } as unknown as Json, error: null })
       .eq("job_id", jobId)
       .eq("idx", chunk.idx);
 
@@ -572,7 +617,11 @@ async function stepChunk(admin: Admin, jobId: string, idx?: number) {
         .eq("idx", chunk.idx);
       const conn = await transcriptionConn(job).catch(() => null);
       const next = conn ? chunkModel(conn, attempts, message) : null;
-      const reason = message.includes(GEMINI_OVERLOADED) ? `${GEMINI_OVERLOADED} — đoạn ${chunk.idx + 1}` : `Đoạn ${chunk.idx + 1} lỗi`;
+      const reason = message.includes(GEMINI_OVERLOADED)
+        ? `${GEMINI_OVERLOADED} — đoạn ${chunk.idx + 1}`
+        : message.includes(GEMINI_RATE_LIMITED)
+          ? `${GEMINI_RATE_LIMITED} — đoạn ${chunk.idx + 1}`
+          : `Đoạn ${chunk.idx + 1} lỗi`;
       const via = conn && next && next !== conn.model ? ` bằng mô hình dự phòng ${next}` : "";
       await patchJob(admin, jobId, {
         stage: `${reason}, tự thử lại${via} sau ${Math.round(waitMs / 1000)} giây (${attempts}/${maxAttempts})…`,
@@ -712,6 +761,10 @@ async function stepFinalize(admin: Admin, jobId: string) {
       const models = [...new Set(viaFallback.map((c) => (c.result as { model?: string }).model))].join(", ");
       warnings.push(`Đoạn ${viaFallback.map((c) => c.idx + 1).join(", ")} dùng mô hình dự phòng ${models} vì ${job.model} quá tải.`);
     }
+    const reuploadedChunks = main.filter((c) => (c.result as { reuploaded?: boolean } | null)?.reuploaded);
+    if (reuploadedChunks.length) {
+      warnings.push(`Tệp âm thanh đoạn ${reuploadedChunks.map((c) => c.idx + 1).join(", ")} trên Gemini không còn — đã tải lại từ tệp gốc.`);
+    }
 
     // Quét khoảng trống: phần có tiếng nói nhưng chưa có chữ → phiên âm lại cửa sổ đó
     if (opts.gapFill !== false && analysis.speech?.length) {
@@ -744,7 +797,7 @@ async function stepFinalize(admin: Admin, jobId: string) {
             const fallback = fallbackModelFor(conn);
             const { result } = await transcribeWithGemini(ai, conn, gapFile, gapPrompt).catch((err) => {
               // Mô hình chính quá tải → quét lại bằng mô hình dự phòng
-              if (fallback && err instanceof AiError && err.kind === "overloaded") {
+              if (fallback && isCapacityError(err)) {
                 return transcribeWithGemini(ai, { ...conn, model: fallback }, gapFile, gapPrompt);
               }
               throw err;

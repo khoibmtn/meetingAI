@@ -1,4 +1,4 @@
-import { AiError, fallbackModelFor, GEMINI_OVERLOADED, type ConnectionConfig } from "@/lib/ai/types";
+import { AiError, fallbackModelFor, isCapacityMessage, type ConnectionConfig } from "@/lib/ai/types";
 
 /**
  * Chính sách thử lại một đoạn phiên âm.
@@ -13,6 +13,8 @@ export const MAX_TRANSIENT_ATTEMPTS = 8;
 export const MAX_RETRY_WAIT_MS = 90_000;
 export const MAX_TRANSIENT_WAIT_MS = 180_000;
 export const FALLBACK_AFTER_OVERLOADS = 2;
+/** Một đoạn đã phải dùng mô hình dự phòng → các đoạn sau dùng luôn dự phòng trong khoảng này. */
+export const FALLBACK_STICKY_MS = 15 * 60_000;
 
 export function isTransientError(err: unknown): boolean {
   if (err instanceof AiError) return err.retryable && err.kind !== "auth";
@@ -32,9 +34,19 @@ export function retryDelayMs(err: unknown, attempt: number, baseMs = 10_000): nu
   return Math.min(baseMs * 2 ** n, MAX_RETRY_WAIT_MS);
 }
 
-/** Mô hình cho lần thử tiếp theo: lần trước quá tải và đã thử ≥ 2 lần → mô hình dự phòng (nếu có). */
-export function chunkModel(conn: Pick<ConnectionConfig, "model" | "params">, prevAttempts: number, prevError: string | null): string {
+/**
+ * Mô hình cho lần thử tiếp theo: dùng mô hình dự phòng (nếu có) khi lần trước mô hình quá tải / hết lượt
+ * và đã thử ≥ 2 lần, hoặc khi đoạn khác của tác vụ vừa phải chuyển sang dự phòng (preferFallback).
+ */
+export function chunkModel(
+  conn: Pick<ConnectionConfig, "model" | "params">,
+  prevAttempts: number,
+  prevError: string | null,
+  preferFallback = false,
+): string {
   const fallback = fallbackModelFor(conn);
-  if (fallback && prevAttempts >= FALLBACK_AFTER_OVERLOADS && prevError?.includes(GEMINI_OVERLOADED)) return fallback;
+  if (!fallback) return conn.model;
+  if (preferFallback) return fallback;
+  if (prevAttempts >= FALLBACK_AFTER_OVERLOADS && isCapacityMessage(prevError)) return fallback;
   return conn.model;
 }

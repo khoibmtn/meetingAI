@@ -110,6 +110,20 @@ check(
   transcriptOf(REC_GEMINI, "quality::text").includes("mô hình dự phòng gemini-2.5-flash"),
   "transcript ghi chú đoạn dùng mô hình dự phòng",
 );
+check(
+  sql(`select string_agg(result->>'model', ',' order by idx) from transcription_chunks where job_id = '${jobG}' and kind = 'main' and idx > 0`) ===
+    "gemini-2.5-flash,gemini-2.5-flash",
+  "đoạn sau dùng luôn mô hình dự phòng (không chờ quá tải lại)",
+);
+check(
+  sql(`select result->>'reuploaded' from transcription_chunks where job_id = '${jobG}' and kind = 'main' and idx = 1`) === "true" &&
+    transcriptOf(REC_GEMINI, "quality::text").includes("đã tải lại từ tệp gốc"),
+  "tệp đoạn 2 trên Gemini không còn (403) → tự tải lại từ tệp gốc",
+);
+check(
+  sql(`select status from ai_connections where id = '30000000-0000-0000-0000-0000000000e1'`) === "ok",
+  "403 do tệp không làm khoá kết nối AI",
+);
 const nG = Number(transcriptOf(REC_GEMINI, "jsonb_array_length(segments)"));
 check(nG === GT.segments.length, `đủ câu sau khi quét bổ sung: ${nG}/${GT.segments.length}`);
 check(
