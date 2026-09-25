@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { jsonError, requireApiAdmin } from "@/lib/auth";
 import { buildDriveAuthUrl } from "@/lib/drive/google";
 import { signToken } from "@/lib/crypto";
-import { resolveBaseUrl } from "@/lib/transcription/pipeline";
+import { resolveBaseUrl } from "@/lib/transcription/jobs";
 
 /** Quản trị viên bắt đầu kết nối Google Drive (OAuth, scope drive.file). */
 export async function GET(request: NextRequest) {

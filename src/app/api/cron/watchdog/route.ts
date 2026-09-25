@@ -1,6 +1,6 @@
 import { type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { resumeJob, STALE_SECONDS } from "@/lib/transcription/pipeline";
+import { resumeJob, STALE_SECONDS } from "@/lib/transcription/jobs";
 import { safeEqual } from "@/lib/crypto";
 
 export const maxDuration = 60;

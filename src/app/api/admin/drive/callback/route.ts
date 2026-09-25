@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { requireApiAdmin } from "@/lib/auth";
 import { ensureRootFolder, exchangeCode, saveDriveConnection } from "@/lib/drive/google";
 import { verifyToken } from "@/lib/crypto";
-import { resolveBaseUrl } from "@/lib/transcription/pipeline";
+import { resolveBaseUrl } from "@/lib/transcription/jobs";
 
 export async function GET(request: NextRequest) {
   const url = new URL(request.url);

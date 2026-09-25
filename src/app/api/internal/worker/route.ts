@@ -1,7 +1,8 @@
 import { after, type NextRequest } from "next/server";
 import { safeEqual } from "@/lib/crypto";
 import { serverEnv } from "@/lib/env";
-import { runWorkerStep, type WorkerPayload } from "@/lib/transcription/pipeline";
+import { runWorkerStep } from "@/lib/transcription/pipeline";
+import type { WorkerPayload } from "@/lib/transcription/jobs";
 
 /**
  * Worker xử lý nền. Mỗi bước là một lần thực thi hàm riêng (tối đa maxDuration):

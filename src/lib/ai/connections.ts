@@ -3,28 +3,21 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptSecret, encryptSecret, keyHint } from "@/lib/crypto";
 import { serverEnv } from "@/lib/env";
 import type { Json, Tables, TablesUpdate } from "@/lib/database.types";
-import { PROVIDERS, USAGES, usageAccepts, type ModelParams, type ProviderKind, type Usage } from "./catalog";
+import {
+  PROVIDERS,
+  USAGES,
+  usageAccepts,
+  type ConnectionSummary,
+  type ModelParams,
+  type ProviderKind,
+  type Usage,
+} from "./catalog";
 import type { ConnectionConfig } from "./types";
 import { AiError } from "./types";
 
 type Row = Tables<"ai_connections">;
 
-/** Thông tin kết nối an toàn để gửi về client (KHÔNG có khoá). */
-export interface ConnectionSummary {
-  id: string;
-  scope: "org" | "user";
-  name: string;
-  provider: ProviderKind;
-  baseUrl: string | null;
-  keyHint: string | null;
-  model: string;
-  params: ModelParams;
-  status: "untested" | "ok" | "error";
-  lastTestedAt: string | null;
-  lastLatencyMs: number | null;
-  lastError: string | null;
-  mine: boolean;
-}
+export type { ConnectionSummary };
 
 export function toSummary(row: Row, userId?: string): ConnectionSummary {
   return {

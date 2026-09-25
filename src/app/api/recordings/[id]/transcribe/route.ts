@@ -1,6 +1,6 @@
 import { after, type NextRequest } from "next/server";
 import { jsonError, requireApiUser, HttpError } from "@/lib/auth";
-import { resolveBaseUrl, startTranscription, triggerWorker, type JobOptions } from "@/lib/transcription/pipeline";
+import { resolveBaseUrl, startTranscription, triggerWorker, type JobOptions } from "@/lib/transcription/jobs";
 
 export const maxDuration = 30;
 

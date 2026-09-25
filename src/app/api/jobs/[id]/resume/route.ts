@@ -1,6 +1,6 @@
 import { type NextRequest } from "next/server";
 import { jsonError, requireApiUser, HttpError } from "@/lib/auth";
-import { resumeJob } from "@/lib/transcription/pipeline";
+import { resumeJob } from "@/lib/transcription/jobs";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 export const maxDuration = 30;

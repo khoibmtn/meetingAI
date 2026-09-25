@@ -25,6 +25,23 @@ export interface ModelParams {
   extra?: Record<string, unknown> | null;
 }
 
+/** Thông tin kết nối an toàn để hiển thị ở client (không có khoá). */
+export interface ConnectionSummary {
+  id: string;
+  scope: "org" | "user";
+  name: string;
+  provider: ProviderKind;
+  baseUrl: string | null;
+  keyHint: string | null;
+  model: string;
+  params: ModelParams;
+  status: "untested" | "ok" | "error";
+  lastTestedAt: string | null;
+  lastLatencyMs: number | null;
+  lastError: string | null;
+  mine: boolean;
+}
+
 export interface ProviderInfo {
   id: ProviderKind;
   label: string;
