@@ -12,6 +12,7 @@ import {
   chooseSilenceThreshold,
   encodeChunk,
   encodeFilters,
+  ffmpegSelfTest,
   levelsToSilences,
   normalizationGainDb,
   parseLevels,
@@ -179,6 +180,14 @@ describe("đọc trực tiếp qua HTTP (tệp lớn trên Drive)", () => {
 
   it("thiếu xác thực thì báo lỗi, không treo", async () => {
     await expect(analyzeAudio({ input: url }, dir)).rejects.toThrow(/ffmpeg lỗi/);
+  }, 30_000);
+});
+
+describe("tự kiểm tra (trang Kiểm tra hệ thống)", () => {
+  it("ffmpeg chạy được, mã hoá và phân tích lại đúng", async () => {
+    const r = await ffmpegSelfTest();
+    expect(r.version).toMatch(/^ffmpeg \d/);
+    expect(r.ms).toBeGreaterThan(0);
   }, 30_000);
 });
 

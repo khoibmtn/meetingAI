@@ -1,7 +1,8 @@
 import "server-only";
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import ffmpegStatic from "ffmpeg-static";
 import type { Interval } from "@/lib/transcription/types";
@@ -239,4 +240,53 @@ export async function encodeChunk(
     "5",
     outPath,
   ]);
+}
+
+/**
+ * Tự kiểm tra ffmpeg trong môi trường chạy thật (dùng cho "Kiểm tra hệ thống"):
+ * tệp chạy được, mã hoá FLAC với bộ lọc đang dùng, ghi được /tmp và phân tích lại đúng thời lượng.
+ */
+export async function ffmpegSelfTest(): Promise<{ version: string; ms: number }> {
+  const t0 = Date.now();
+  const version = await new Promise<string>((resolve, reject) => {
+    const proc = spawn(binary(), ["-version"], { stdio: ["ignore", "pipe", "ignore"] });
+    let out = "";
+    proc.stdout.on("data", (d: Buffer) => (out += d.toString()));
+    proc.on("error", reject);
+    proc.on("close", (code) =>
+      code === 0
+        ? resolve(`ffmpeg ${/ffmpeg version (\S+)/.exec(out)?.[1] ?? "?"}`)
+        : reject(new Error(`ffmpeg -version thoát mã ${code}`)),
+    );
+  });
+  const dir = await mkdtemp(path.join(tmpdir(), "health-"));
+  try {
+    const out = path.join(dir, "self-test.flac");
+    await runFfmpeg(
+      [
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "sine=frequency=440:duration=2",
+        "-af",
+        encodeFilters({ normalize: "gain", gainDb: 3, denoise: false }),
+        "-ar",
+        "16000",
+        "-ac",
+        "1",
+        "-sample_fmt",
+        "s16",
+        "-c:a",
+        "flac",
+        out,
+      ],
+      30_000,
+    );
+    const r = await analyzeAudio({ input: out }, dir);
+    if (!(r.durationSec > 1.9 && r.durationSec < 2.1)) throw new Error(`ffmpeg phân tích sai thời lượng (${r.durationSec} s)`);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+  return { version, ms: Date.now() - t0 };
 }

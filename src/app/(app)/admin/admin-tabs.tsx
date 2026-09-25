@@ -19,6 +19,7 @@ import { ConnectionsManager } from "@/components/ai/connections-manager";
 import { useProfile } from "@/components/profile-context";
 import { apiJson } from "@/lib/client/api";
 import { formatBytes } from "@/lib/utils";
+import { SystemCheck } from "./system-check";
 
 type UserRow = Pick<Tables<"profiles">, "id" | "email" | "full_name" | "title" | "department" | "role" | "status" | "created_at" | "avatar_url">;
 
@@ -35,6 +36,7 @@ export function AdminTabs({ initialTab, users, driveNotice }: { initialTab: stri
         <TabsTrigger value="storage">Lưu trữ</TabsTrigger>
         <TabsTrigger value="org">Đơn vị</TabsTrigger>
         <TabsTrigger value="users">Người dùng</TabsTrigger>
+        <TabsTrigger value="check">Kiểm tra</TabsTrigger>
       </TabsList>
       <TabsContent value="ai" className="pt-4">
         <ConnectionsManager scope="org" />
@@ -47,6 +49,9 @@ export function AdminTabs({ initialTab, users, driveNotice }: { initialTab: stri
       </TabsContent>
       <TabsContent value="users" className="pt-4">
         <UsersCard users={users} />
+      </TabsContent>
+      <TabsContent value="check" className="pt-4">
+        <SystemCheck />
       </TabsContent>
     </Tabs>
   );
