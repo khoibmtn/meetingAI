@@ -45,3 +45,6 @@ next-env.d.ts
 
 # local scratch
 /tmp/
+
+# kết quả kiểm thử e2e
+/tests/e2e/.out/

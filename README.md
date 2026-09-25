@@ -176,14 +176,18 @@ npm run dev                  # http://localhost:3000
 | `npm run build` | Build production |
 | `DATABASE_ADMIN_URL=postgresql://postgres@localhost:5432/postgres scripts/test-db.sh` | Chạy migration và kiểm thử phân quyền (RLS) trên PostgreSQL 16 |
 
-**Kiểm thử giao diện không cần Supabase thật.** Dùng [`tests/e2e/gateway.mjs`](tests/e2e/gateway.mjs) cùng PostgREST:
+**Kiểm thử pipeline trọn vẹn không cần Supabase, Google hay khoá AI thật:**
 
-1. Chạy PostgREST trỏ vào CSDL đã chạy migration. Nạp `tests/db/supabase-stub.sql` trước để có các vai trò và schema `auth` như Supabase.
-2. Chạy `node tests/e2e/gateway.mjs`. Script in ra `ANON_KEY` và `SERVICE_KEY`.
-3. Đặt `NEXT_PUBLIC_SUPABASE_URL=http://127.0.0.1:54321` cùng hai khoá vừa in vào `.env.local`.
-4. Đăng nhập bằng mật khẩu `E2E_PASSWORD` (mặc định `matkhau123`).
+```bash
+DATABASE_ADMIN_URL=postgresql://postgres:postgres@127.0.0.1:5432/postgres POSTGREST_BIN=/tmp/postgrest tests/e2e/run.sh
+```
 
-CI (GitHub Actions) chạy lint, typecheck, unit test, build và kiểm thử RLS trên PostgreSQL 16 cho mỗi pull request.
+Lệnh này dựng CSDL tạm, PostgREST, gateway Supabase giả lập và máy chủ giả lập Google/Gemini/Soniox, rồi phiên âm một bản ghi tổng hợp 25 phút. Kết quả được đối chiếu với đáp án (18 kiểm tra). Chi tiết xem [tests/e2e/README.md](tests/e2e/README.md).
+
+CI (GitHub Actions) chạy trên mỗi pull request:
+- lint, typecheck, unit test, build
+- kiểm thử RLS trên PostgreSQL 16
+- kiểm thử pipeline e2e
 
 ## Cấu trúc thư mục
 

@@ -184,4 +184,4 @@ Trạng thái tác vụ: `queued → preparing → transcribing → finalizing �
 | Đơn vị | `npm test` | Ghép đoạn, chồng lấn, độ phủ, khoảng lặng, thống nhất người nói, Soniox → câu, sửa JSON, trích dẫn, DOCX, mã hoá |
 | CSDL | `scripts/test-db.sh` | Migration + kiểm thử RLS, RPC và hàm giành quyền trên PostgreSQL 16 |
 | Kiểu/lint | `npm run typecheck`, `npm run lint` | TypeScript strict, ESLint (Next + React Compiler rules) |
-| E2E cục bộ | `tests/e2e/gateway.mjs` + PostgREST | Giả lập Supabase để chạy giao diện thật bằng Playwright (xem README) |
+| Pipeline e2e | `tests/e2e/run.sh` | Dữ liệu tổng hợp 25 phút + máy chủ giả lập Google/Gemini/Soniox. Kiểm tra: chia đoạn, thử lại khi lỗi, quét bổ sung, đặt tên người nói, hiệu đính có kiểm chứng, bản máy gốc, tự tạo biên bản |

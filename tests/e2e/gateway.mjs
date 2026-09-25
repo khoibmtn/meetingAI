@@ -132,10 +132,17 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
-  const anon = signJwt({ role: "anon", iss: "supabase-e2e", iat: 1700000000, exp: 4102444800 });
-  const service = signJwt({ role: "service_role", iss: "supabase-e2e", iat: 1700000000, exp: 4102444800 });
-  console.log(`gateway http://127.0.0.1:${PORT}`);
-  console.log(`ANON_KEY=${anon}`);
-  console.log(`SERVICE_KEY=${service}`);
-});
+// Khoá cố định (iat cố định) → biết trước để build ứng dụng với NEXT_PUBLIC_* tương ứng
+const ANON_KEY = signJwt({ role: "anon", iss: "supabase-e2e", iat: 1700000000, exp: 4102444800 });
+const SERVICE_KEY = signJwt({ role: "service_role", iss: "supabase-e2e", iat: 1700000000, exp: 4102444800 });
+
+if (process.argv.includes("--print-keys")) {
+  console.log(`ANON_KEY=${ANON_KEY}`);
+  console.log(`SERVICE_KEY=${SERVICE_KEY}`);
+} else {
+  server.listen(PORT, () => {
+    console.log(`gateway http://127.0.0.1:${PORT}`);
+    console.log(`ANON_KEY=${ANON_KEY}`);
+    console.log(`SERVICE_KEY=${SERVICE_KEY}`);
+  });
+}
