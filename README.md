@@ -70,12 +70,14 @@ Cần có:
 
 1. Tạo project. Vào **Project Settings → API Keys**, lấy **publishable key** (`sb_publishable_…`) và **secret key** (`sb_secret_…`). Khoá cũ anon/service_role vẫn dùng được.
 2. Chạy migration: mở **SQL Editor**, dán toàn bộ nội dung [`supabase/migrations/20260925000000_init.sql`](supabase/migrations/20260925000000_init.sql) rồi bấm **Run**. Nếu dùng Supabase CLI thì chạy `supabase link` rồi `supabase db push`.
+   - Có thể làm bước này sau khi deploy: nếu CSDL chưa khởi tạo, ứng dụng tự mở trang **Cài đặt ban đầu**, có nút sao chép SQL và liên kết thẳng tới SQL Editor.
+   - Tài khoản đã đăng ký trước khi chạy migration vẫn được tạo hồ sơ; người đăng ký sớm nhất là quản trị viên.
    - Migration tạo bảng, phân quyền RLS và bật Realtime cho chat và tiến độ phiên âm.
 3. Vào **Authentication → URL Configuration**:
    - **Site URL**: `https://<tên-miền-ứng-dụng>`
    - **Redirect URLs**: thêm `https://<tên-miền-ứng-dụng>/auth/callback`, và `http://localhost:3000/auth/callback` nếu chạy thử trên máy.
 4. Vào **Authentication → Sign In / Providers**:
-   - Bật Email.
+   - Bật Email. Khi mới chạy thử, có thể tắt **Confirm email** để đăng ký xong dùng ngay; email xác nhận mặc định của Supabase bị giới hạn vài thư mỗi giờ.
    - Tuỳ chọn bật Google, dùng OAuth client ở bước 2. Redirect URI của Google là `https://<project-ref>.supabase.co/auth/v1/callback`.
 
 ### Bước 2. Google Cloud (Google Drive)

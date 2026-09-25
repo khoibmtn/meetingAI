@@ -1165,3 +1165,21 @@ begin
   end if;
 end;
 $$;
+
+-- =============================================================================
+-- Tài khoản đã đăng ký TRƯỚC khi chạy migration (lúc đó chưa có trigger tạo hồ sơ):
+-- tạo hồ sơ bù; người đăng ký sớm nhất trở thành quản trị viên.
+-- =============================================================================
+insert into public.profiles (id, email, full_name, avatar_url, role, status)
+select u.id,
+       u.email,
+       coalesce(u.raw_user_meta_data ->> 'full_name', u.raw_user_meta_data ->> 'name', split_part(u.email, '@', 1)),
+       coalesce(u.raw_user_meta_data ->> 'avatar_url', u.raw_user_meta_data ->> 'picture'),
+       case
+         when not exists (select 1 from public.profiles where role = 'admin')
+          and row_number() over (order by u.created_at, u.id) = 1 then 'admin'
+         else 'member'
+       end,
+       'active'
+  from auth.users u
+ where not exists (select 1 from public.profiles p where p.id = u.id);

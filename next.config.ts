@@ -6,6 +6,8 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["ffmpeg-static"],
   outputFileTracingIncludes: {
     "/api/internal/worker": ["./node_modules/ffmpeg-static/ffmpeg"],
+    // SQL migration hiển thị ở trang cài đặt ban đầu
+    "/setup/migration": ["./supabase/migrations/*.sql"],
   },
   poweredByHeader: false,
 };

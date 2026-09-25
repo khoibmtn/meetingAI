@@ -12,7 +12,8 @@ grant usage on schema public, extensions, auth to anon, authenticated, service_r
 create table auth.users (
   id uuid primary key,
   email text,
-  raw_user_meta_data jsonb not null default '{}'::jsonb
+  raw_user_meta_data jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
 );
 create function auth.uid() returns uuid language sql stable as $$
   select coalesce(

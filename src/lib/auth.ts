@@ -3,6 +3,7 @@ import { cache } from "react";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Tables } from "@/lib/database.types";
+import { isDatabaseReady } from "@/lib/setup-status";
 
 export type Profile = Tables<"profiles">;
 
@@ -29,7 +30,8 @@ export const getSessionProfile = cache(async () => {
 /** Dùng trong Server Component/page: bắt buộc đăng nhập và tài khoản đang hoạt động. */
 export async function requirePageUser() {
   const session = await getSessionProfile();
-  if (!session) redirect("/login");
+  // Không có hồ sơ: chưa đăng nhập, hoặc CSDL chưa chạy migration (bảng profiles chưa có)
+  if (!session) redirect((await isDatabaseReady()) ? "/login" : "/setup");
   if (session.profile.status === "pending") redirect("/auth/pending");
   if (session.profile.status === "disabled") redirect("/auth/disabled");
   return session;
