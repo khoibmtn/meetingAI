@@ -53,6 +53,14 @@ Có thể thêm template tuỳ chỉnh theo cá nhân, nhóm hoặc đơn vị. 
 - Chat 1-1.
 - Ghi chú cá nhân gắn mốc thời gian.
 
+### Hướng dẫn sử dụng
+- Trang **Hướng dẫn** (`/help`; menu Công cụ → Hướng dẫn, hoặc menu cá nhân) cho người dùng thông thường gồm:
+  - mỗi trang có gì và dùng để làm gì;
+  - các bước thao tác;
+  - mẹo để transcript chính xác;
+  - xử lý sự cố thường gặp;
+  - ai thấy được nội dung nào.
+
 ### Kết nối AI
 - Nhà cung cấp: Gemini, OpenAI, Claude, **DeepSeek**, API tương thích OpenAI (OpenRouter, vLLM…), Soniox.
 - Mỗi kết nối:

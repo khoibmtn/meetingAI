@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { LogOutIcon, SettingsIcon } from "lucide-react";
+import { CircleHelpIcon, LogOutIcon, SettingsIcon } from "lucide-react";
 import { UserAvatar } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -42,6 +42,11 @@ export function UserMenu({ compact = false }: { compact?: boolean }) {
         <DropdownMenuItem asChild>
           <Link href="/settings">
             <SettingsIcon /> Cài đặt cá nhân
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link href="/help">
+            <CircleHelpIcon /> Hướng dẫn sử dụng
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />

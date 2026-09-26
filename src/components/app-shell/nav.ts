@@ -1,6 +1,7 @@
 import {
   AudioLinesIcon,
   BookTextIcon,
+  CircleHelpIcon,
   FileTextIcon,
   MessagesSquareIcon,
   NotebookPenIcon,
@@ -29,5 +30,6 @@ export const NAV_TOOLS: NavItem[] = [
   { href: "/templates", label: "Template tổng hợp", icon: FileTextIcon },
   { href: "/glossary", label: "Từ điển thuật ngữ", icon: BookTextIcon },
   { href: "/settings", label: "Cài đặt", icon: SettingsIcon },
+  { href: "/help", label: "Hướng dẫn", icon: CircleHelpIcon },
   { href: "/admin", label: "Quản trị", icon: ShieldCheckIcon, adminOnly: true },
 ];
