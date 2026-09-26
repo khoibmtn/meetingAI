@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  app:
+    name: Lint, typecheck, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  database:
+    name: Migration + RLS (PostgreSQL 16)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - name: Chạy migration và kiểm thử phân quyền
+        env:
+          DATABASE_ADMIN_URL: postgresql://postgres:postgres@localhost:5432/postgres
+        run: scripts/test-db.sh
+
+  pipeline-e2e:
+    name: Pipeline phiên âm (e2e với API giả lập)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Tải PostgREST
+        run: |
+          curl -sSL -o /tmp/postgrest.tar.xz https://github.com/PostgREST/postgrest/releases/download/v14.1/postgrest-v14.1-linux-static-x86-64.tar.xz
+          tar -xJf /tmp/postgrest.tar.xz -C /tmp
+      - name: Chạy kiểm thử pipeline
+        env:
+          DATABASE_ADMIN_URL: postgresql://postgres:postgres@127.0.0.1:5432/postgres
+          POSTGREST_BIN: /tmp/postgrest
+        run: tests/e2e/run.sh
